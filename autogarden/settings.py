@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from decouple import config
+from datetime import timedelta
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -49,7 +50,10 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -90,10 +94,16 @@ DATABASES = {
         'PORT': config('DB_PORT'),
     }
 }
-
+AUTH_USER_MODEL = 'users.User'
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
-
+PASSWORD_HASHERS = [
+    # https://docs.djangoproject.com/en/dev/topics/auth/passwords/#using-argon2-with-django
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+    "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
+]
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
@@ -109,17 +119,37 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": ("rest_framework_simplejwt.authentication.JWTAuthentication",),
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "EXCEPTION_HANDLER": "common.exception_handler.custom_exception_handler",
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
-    'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
-    'DEFAULT_AUTHENTICATION_CLASSES': ['rest_framework.authentication.SessionAuthentication'],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 10,
+    
 }
-
+CORS_URLS_REGEX = r"^/api/.*$"
+CORS_ORIGIN_ALLOW_ALL = True
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Mechanical Workshop API',
     'DESCRIPTION': 'Internal System for Inventory, Billing, Reminders, and More',
     'VERSION': '1.0.0',
-    'SERVE_INCLUDE_SCHEMA': False,
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "persistAuthorization": True,
+        "displayOperationId": True,
+    },
+    "SCHEMA_PATH_PREFIX": r"/api/v[0-9]",
+    "COMPONENT_SPLIT_REQUEST": True,
+    "METHOD_NAME_IN_OPERATION_ID": False,
+    "SERVE_AUTHENTICATION": ["rest_framework.authentication.BasicAuthentication"],
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
+}
+SIMPLE_JWT = {
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "BLACKLIST_AFTER_ROTATION": False,
 }
 
 # Internationalization
@@ -127,7 +157,7 @@ SPECTACULAR_SETTINGS = {
 
 LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = "UTC"
+TIME_ZONE = "Asia/Kathmandu"
 
 USE_I18N = True
 
@@ -137,9 +167,28 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = "static/"
+STATIC_ROOT = str(BASE_DIR / "staticfiles")
+# https://docs.djangoproject.com/en/dev/ref/settings/#static-url
+STATIC_URL = "/static/"
+# https://docs.djangoproject.com/en/dev/ref/contrib/staticfiles/#std:setting-STATICFILES_DIRS
+STATICFILES_DIRS = [str(BASE_DIR / "static")]
+# MEDIA
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#media-root
+MEDIA_ROOT = str(BASE_DIR / "media")
+# https://docs.djangoproject.com/en/dev/ref/settings/#media-url
+MEDIA_URL = "/media/"
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'mail.axortech.com'  # Your SMTP server address
+EMAIL_PORT = 465# Your SMTP server port (usually 587 for TLS)
+EMAIL_USE_TLS = False  # Use TLS encryption for secure communication with SMTP server
+EMAIL_USE_SSL = True
+EMAIL_HOST_USER = 'no-reply@axortech.com' # Your email address used for sending emails
+EMAIL_HOST_PASSWORD = 'Jq]Fc.;_~K,Y'  # Your email password or app password if enabled

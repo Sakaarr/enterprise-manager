@@ -23,9 +23,6 @@ import environ
 from django.core.mail import send_mail
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
-env = environ.Env()
-env.read_env(str(settings.BASE_DIR / ".env"))
-
 User = get_user_model()
 env = environ.Env()
 env.read_env(str(settings.BASE_DIR / ".env"))
@@ -77,7 +74,7 @@ class ProfileAPIView(APIView):
 
 
 class ProfileDetailAPIView(APIView):
-    permission_class = [IsAuthenticated, IsOwnerOrReadOnly]
+    permission_class = [IsAuthenticated]
     serializer_class = ProfileSerializer
 
     def get_object(self, pk):
@@ -148,7 +145,7 @@ class ForgetPasswordView(APIView):
         print(uid, token)
         BASE_URL = env("BASE_URL")
 
-        reset_url = f"http://localhost:5173/reset-password?token={token}&uidb64={uid}"
+        reset_url = f"http://localhost:8000/api/users/reset-password-confirm/{uid}/{token}/"
 
         send_mail(
             'Password Reset',

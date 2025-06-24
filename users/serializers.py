@@ -6,7 +6,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
 from django.core.mail import send_mail
 from django.conf import settings
-from users.models import User, VendorOutlet, OutletStaff, Article
+from users.models import User
 import jwt
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
@@ -57,8 +57,6 @@ class LoginSerializer(TokenObtainPairSerializer):
         response = {
             "refresh": str(refresh),
             "access": str(refresh.access_token),
-            'is_vendor': user.is_vendor,
-            'is_staff': user.is_staff,
         }
         return response
 
@@ -70,7 +68,7 @@ class LoginSerializer(TokenObtainPairSerializer):
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id','email', 'first_name', 'last_name', 'avatar', 'bio', 'is_vendor', 'phone_number']
+        fields = ['id','email', 'first_name', 'last_name', 'avatar', 'phone_number']
 
 
 class UserSerializer(serializers.ModelSerializer):

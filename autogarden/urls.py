@@ -17,6 +17,9 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
+from django.views import defaults as default_views
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
@@ -25,3 +28,25 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/users/', include('users.urls')),
 ]
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+if settings.DEBUG:
+    # This allows the error pages to be debugged during development, just visit
+    # these url in browser to see how these error pages look like.
+    urlpatterns += [
+        path(
+            "debug/400/",
+            default_views.bad_request,
+            kwargs={"exception": Exception("Bad Request!")},
+        ),
+        path(
+            "debug/403/",
+            default_views.permission_denied,
+            kwargs={"exception": Exception("Permission Denied")},
+        ),
+        path(
+            "debug/404/",
+            default_views.page_not_found,
+            kwargs={"exception": Exception("Page not Found")},
+        ),
+        path("debug/500/", default_views.server_error),
+    ]

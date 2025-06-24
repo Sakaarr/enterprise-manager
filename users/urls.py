@@ -1,5 +1,5 @@
 from django.urls import path, include
-from users.api.v1 import views as apiview
+from users import views as apiview
 app_name = "API"
 urlpatterns = [
     path("login/", apiview.LoginApiView.as_view(), name="login"),
