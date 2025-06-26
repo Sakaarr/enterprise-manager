@@ -3,6 +3,12 @@ from django.db import models
 from users.managers import UserManager
 from typing import ClassVar
 from django.core.validators import RegexValidator
+
+
+class Role(models.Model):
+    name = models.CharField(max_length=100)
+    permissions = models.TextField()
+    
 class User(AbstractUser):
     email = models.EmailField(unique=True)
     username = models.CharField(max_length=100, null=True, blank=True)
@@ -13,6 +19,7 @@ class User(AbstractUser):
         regex=r'^\d{10}$',
         message="Phone number must be 10 digits."
     )
+    role = models.ForeignKey(Role, on_delete=models.CASCADE)
     
     phone_number = models.CharField(validators=[phone_regex], max_length=17, blank=True)
     REQUIRED_FIELDS = []
@@ -21,3 +28,5 @@ class User(AbstractUser):
 
     def __str__(self) -> str:
         return self.email
+    
+    
