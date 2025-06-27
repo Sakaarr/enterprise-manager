@@ -186,7 +186,7 @@ MEDIA_URL = "/media/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'mail.axortech.com'  # Your SMTP server address
+EMAIL_HOST = 'smtp.gmail.com'  # Your SMTP server address
 EMAIL_PORT = 465# Your SMTP server port (usually 587 for TLS)
 EMAIL_USE_TLS = False  # Use TLS encryption for secure communication with SMTP server
 EMAIL_USE_SSL = True

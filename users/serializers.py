@@ -21,15 +21,21 @@ class PasswordResetSerializer(serializers.Serializer):
         if not User.objects.filter(email=value).exists():
             raise serializers.ValidationError("This email is not registered.")
         return value
-
-class SetNewPasswordSerializer(serializers.Serializer):
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(write_only=True)
     new_password = serializers.CharField(write_only=True)
     confirm_password = serializers.CharField(write_only=True)
 
     def validate(self, data):
         if data['new_password'] != data['confirm_password']:
-            raise serializers.ValidationError("Passwords do not match.")
+            raise serializers.ValidationError("New password and confirm password do not match.")
         return data
+
+    def validate_old_password(self, value):
+        user = self.context['request'].user
+        if not user.check_password(value):
+            raise serializers.ValidationError("Old password is incorrect.")
+        return value
     
 class LoginSerializer(TokenObtainPairSerializer):
     email = serializers.EmailField()
@@ -92,13 +98,28 @@ class RoleSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'permissions']
         
 class UserSerializer(serializers.ModelSerializer):
-    role = RoleSerializer(read_only=True)
-    role_id = serializers.PrimaryKeyRelatedField(
+    role = serializers.PrimaryKeyRelatedField(
         queryset=Role.objects.all(),
-        source='role',
-        write_only=True
+        required=False
     )
+    password = serializers.CharField(write_only=True)
 
     class Meta:
         model = User
-        fields = ['id', 'first_name', 'last_name', 'email', 'role', 'role_id']
+        fields = ['id', 'email', 'first_name', 'last_name', 'phone_number', 'avatar', 'role', 'password']
+
+    def create(self, validated_data):
+        password = validated_data.pop('password')
+        user = User(**validated_data)
+        user.set_password(password)  # Securely hash the password
+        user.save()
+        return user
+    
+class SetNewPasswordSerializer(serializers.Serializer):
+    new_password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
+
+    def validate(self, data):
+        if data['new_password'] != data['confirm_password']:
+            raise serializers.ValidationError("Passwords do not match.")
+        return data

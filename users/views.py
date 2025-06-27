@@ -1,4 +1,4 @@
-from .serializers import UserSerializer, LoginSerializer, ProfileSerializer, PasswordResetSerializer, SetNewPasswordSerializer, RoleSerializer
+from .serializers import SetNewPasswordSerializer,ChangePasswordSerializer,UserSerializer,LoginSerializer,ProfileSerializer, PasswordResetSerializer, RoleSerializer
 from django.contrib.auth import get_user_model, authenticate, login, logout
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status, generics
@@ -8,7 +8,7 @@ from rest_framework import viewsets
 from .models import *
 from common.response import error_response, success_response
 from django.contrib.auth.mixins import LoginRequiredMixin
-from common.custom_permission import IsOwnerOrReadOnly
+from common.custom_permission import IsOwnerOrReadOnly, IsAdminRole
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.urls import reverse
@@ -23,7 +23,6 @@ from django.core.mail import send_mail
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from drf_spectacular.utils import extend_schema, OpenApiParameter
-from common.custom_permission import IsAdminRole
 
 User = get_user_model()
 env = environ.Env()
@@ -32,6 +31,7 @@ class LoginApiView(APIView):
     serializer_class = LoginSerializer
 
     @extend_schema(
+        tags=["Authentication"],
         operation_id="API To Login The User",
         description="API To Login The User",
         request=LoginSerializer,
@@ -52,6 +52,7 @@ class ProfileAPIView(APIView):
     serializer_class = ProfileSerializer
 
     @extend_schema(
+        tags=["Authentication"],
         operation_id="API To Get Profie of Currently Login User",
         description="API To Get Profie of Currently Login Use",
         request=ProfileSerializer,
@@ -75,10 +76,17 @@ class ProfileAPIView(APIView):
             )
 
 
+@extend_schema(
+        tags=["Authentication"],
+        operation_id="API To Get Profie of given id",
+        description="API To Get Profie of given id",
+        request=ProfileSerializer,
+    )
 class ProfileDetailAPIView(APIView):
+    
     permission_class = [IsAuthenticated]
     serializer_class = ProfileSerializer
-
+    
     def get_object(self, pk):
         try:
             profile = User.objects.get(pk=pk)
@@ -90,11 +98,7 @@ class ProfileDetailAPIView(APIView):
             '''
             raise ValidationError("Profile not found.")
 
-    @extend_schema(
-        operation_id="API To Get Profie of given id",
-        description="API To Get Profie of given id",
-        request=ProfileSerializer,
-    )
+    
     def get(self, request, pk):
         profile = self.get_object(pk)
         serializer = ProfileSerializer(profile)
@@ -133,6 +137,7 @@ class ForgetPasswordView(APIView):
     serializer_class = PasswordResetSerializer
 
     @extend_schema(
+        tags=["Authentication"],
         operation_id="API To Reset Password",
         description="API To Reset Password",
         request=PasswordResetSerializer,
@@ -163,8 +168,97 @@ class ForgetPasswordView(APIView):
         )
 
 
+
+@extend_schema(
+        tags=["Authentication"],
+        operation_id="API to manage roles (CRUD)",
+        description="API endpoints for creating, updating, retrieving, and deleting user roles.",
+    )
+class RoleViewSet(viewsets.ModelViewSet):
+    queryset = Role.objects.all()
+    serializer_class = RoleSerializer
+
+    
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+    
+
+
+class AdminCreateUserAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["Authentication"],
+        operation_id="Admin Create User",
+        description="Allows an admin to create a new user and send credentials via email.",
+        request=UserSerializer
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = UserSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+
+            # Send credentials email
+            password = request.data.get('password')
+            send_mail(
+                subject="Your Account Has Been Created",
+                message=(
+                    f"Dear {user.first_name},\n\n"
+                    f"Your account has been created by the admin.\n"
+                    f"Email: {user.email}\n"
+                    f"Password: {password}\n\n"
+                    f"Please change your password after logging in."
+                ),
+                from_email=settings.EMAIL_HOST_USER,
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+
+            return success_response(
+                status_code=status.HTTP_200_OK,
+                message="User created successfully and credentials emailed.",
+                description="User created successfully and credentials emailed.",
+                data=UserSerializer(user).data
+            )
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    
+class ChangePasswordAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["Authentication"],
+        operation_id="Change Password",
+        description="Allow authenticated users to change their password by entering old and new password.",
+        request=ChangePasswordSerializer
+    )
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            user = request.user
+            user.set_password(serializer.validated_data['new_password'])
+            user.save()
+            return success_response(
+                status_code=status.HTTP_200_OK,
+                message="Password changed successfully.",
+                description="The user's password was updated successfully.",
+                data=None
+            )
+        return error_response(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            message="Password change failed.",
+            description="There was an error changing the password.",
+            data=serializer.errors
+        )
+        
 class PasswordResetConfirmView(APIView):
     serializer_class = SetNewPasswordSerializer
+    @extend_schema(
+        tags=["Authentication"],
+        operation_id="API to Reset Confirm Password",
+        description="API to Reset Confirm Password",
+    )
 
     def post(self, request, uidb64, token, *args, **kwargs):
         try:
@@ -187,24 +281,3 @@ class PasswordResetConfirmView(APIView):
                 "message": "Invalid token or user ID."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-
-class RoleViewSet(viewsets.ModelViewSet):
-    queryset = Role.objects.all()
-    serializer_class = RoleSerializer
-
-    @extend_schema(
-        operation_id="API to manage roles (CRUD)",
-        description="API endpoints for creating, updating, retrieving, and deleting user roles.",
-    )
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
-    
-    
-class UserAdminViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated, IsAdminRole]
-    filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
-    filterset_fields = ['role__id', 'role__name']
-    ordering_fields = ['email', 'first_name', 'last_name']
-    search_fields = ['email', 'first_name', 'last_name']
