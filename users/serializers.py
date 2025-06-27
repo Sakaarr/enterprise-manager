@@ -6,7 +6,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
 from django.core.mail import send_mail
 from django.conf import settings
-from users.models import User
+from users.models import User , Role
 import jwt
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
@@ -68,13 +68,10 @@ class LoginSerializer(TokenObtainPairSerializer):
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id','email', 'first_name', 'last_name', 'avatar', 'phone_number']
+        fields = ['id','email', 'first_name','role', 'last_name', 'avatar', 'phone_number']
 
 
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ['id', 'first_name', 'last_name', 'email']
+
 
 class RefreshTokenSerializer(TokenRefreshSerializer):
     refresh = serializers.CharField()
@@ -88,3 +85,20 @@ class RefreshTokenSerializer(TokenRefreshSerializer):
             "access": data.get("access"),
             "refresh": attrs.get("refresh"),
         }
+        
+class RoleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Role
+        fields = ['id', 'name', 'permissions']
+        
+class UserSerializer(serializers.ModelSerializer):
+    role = RoleSerializer(read_only=True)
+    role_id = serializers.PrimaryKeyRelatedField(
+        queryset=Role.objects.all(),
+        source='role',
+        write_only=True
+    )
+
+    class Meta:
+        model = User
+        fields = ['id', 'first_name', 'last_name', 'email', 'role', 'role_id']

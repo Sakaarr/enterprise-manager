@@ -13,3 +13,12 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
 
         # Write permissions are only allowed to the owner of the profile
         return obj.user == request.user
+
+
+
+class IsAdminRole(permissions.BasePermission):
+    """
+    Allows access only to users with an 'Admin' role.
+    """
+    def has_permission(self, request, view):
+        return hasattr(request.user, 'role') and request.user.role.name.lower() == 'admin'

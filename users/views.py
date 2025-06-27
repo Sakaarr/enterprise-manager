@@ -1,5 +1,4 @@
-from django.shortcuts import render
-from .serializers import UserSerializer, LoginSerializer, ProfileSerializer, PasswordResetSerializer, SetNewPasswordSerializer
+from .serializers import UserSerializer, LoginSerializer, ProfileSerializer, PasswordResetSerializer, SetNewPasswordSerializer, RoleSerializer
 from django.contrib.auth import get_user_model, authenticate, login, logout
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status, generics
@@ -21,7 +20,10 @@ from urllib.parse import urlencode
 from rest_framework import serializers
 import environ
 from django.core.mail import send_mail
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters
 from drf_spectacular.utils import extend_schema, OpenApiParameter
+from common.custom_permission import IsAdminRole
 
 User = get_user_model()
 env = environ.Env()
@@ -185,3 +187,24 @@ class PasswordResetConfirmView(APIView):
                 "message": "Invalid token or user ID."
             }, status=status.HTTP_400_BAD_REQUEST)
 
+
+class RoleViewSet(viewsets.ModelViewSet):
+    queryset = Role.objects.all()
+    serializer_class = RoleSerializer
+
+    @extend_schema(
+        operation_id="API to manage roles (CRUD)",
+        description="API endpoints for creating, updating, retrieving, and deleting user roles.",
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+    
+    
+class UserAdminViewSet(viewsets.ModelViewSet):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated, IsAdminRole]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+    filterset_fields = ['role__id', 'role__name']
+    ordering_fields = ['email', 'first_name', 'last_name']
+    search_fields = ['email', 'first_name', 'last_name']

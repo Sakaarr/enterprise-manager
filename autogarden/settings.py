@@ -190,5 +190,7 @@ EMAIL_HOST = 'mail.axortech.com'  # Your SMTP server address
 EMAIL_PORT = 465# Your SMTP server port (usually 587 for TLS)
 EMAIL_USE_TLS = False  # Use TLS encryption for secure communication with SMTP server
 EMAIL_USE_SSL = True
-EMAIL_HOST_USER = 'no-reply@axortech.com' # Your email address used for sending emails
-EMAIL_HOST_PASSWORD = 'Jq]Fc.;_~K,Y'  # Your email password or app password if enabled
+EMAIL_HOST_USER = 'money.minder077@gmail.com'
+# Your email address used for sending emails
+EMAIL_HOST_PASSWORD = 'ckusroasgswikhsm'
+# Your email password or app password if enabled

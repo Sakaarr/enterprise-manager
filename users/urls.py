@@ -1,6 +1,11 @@
 from django.urls import path, include
 from users import views as apiview
+from rest_framework.routers import DefaultRouter
 app_name = "API"
+router = DefaultRouter()
+router.register(r'roles', apiview.RoleViewSet, basename='role')
+router.register(r'users', apiview.UserAdminViewSet, basename='user-admin')
+
 urlpatterns = [
     path("login/", apiview.LoginApiView.as_view(), name="login"),
     path('profile/', apiview.ProfileAPIView.as_view(), name='profile-list-create'),
@@ -9,3 +14,4 @@ urlpatterns = [
     path('password_reset_confirm/<uidb64>/<token>/', apiview.PasswordResetConfirmView.as_view(),
          name='password_reset_confirm'),
 ]
+urlpatterns += router.urls
