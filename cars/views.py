@@ -1,10 +1,13 @@
-from rest_framework import viewsets, filters
-from .models import Car, JobEntry, Service, CarServiceRecord
-from .serializers import CarSerializer, JobEntrySerializer, ServiceSerializer, CarServiceRecordSerializer
+from rest_framework import viewsets, filters, permissions, serializers
+from .models import Car, JobEntry, Service, CarServiceRecord, InventoryUsage
+from .serializers import CarSerializer, JobEntrySerializer, ServiceSerializer, CarServiceRecordSerializer, InventoryUsageSerializer
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema_view, extend_schema
-
+from drf_spectacular.utils import extend_schema_view, extend_schema, OpenApiParameter
+from rest_framework.decorators import action
+from django.utils.dateparse import parse_date
+from django.db.models import Sum
+from rest_framework.response import Response
 
 @extend_schema_view(
     list=extend_schema(tags=["Car"]),
@@ -70,3 +73,61 @@ class CarServiceRecordViewSet(viewsets.ModelViewSet):
     #     if self.action in ['create', 'update', 'partial_update']:
     #         return [IsAuthenticated]
     #     return super().get_permissions()
+    
+@extend_schema(tags=["Inventory Usage"])
+class InventoryUsageViewSet(viewsets.ModelViewSet):
+    queryset = InventoryUsage.objects.all()
+    serializer_class = InventoryUsageSerializer
+    permission_classes = [permissions.IsAuthenticated]  # or your custom permission
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+    filterset_fields = ['service_record', 'product', 'used_at']
+    ordering_fields = ['used_at', 'quantity_used']
+    search_fields = ['product__name']
+
+
+    def perform_create(self, serializer):
+        usage = serializer.save()
+        # Update product stock
+        product = usage.product
+        if product.quantity_in_stock < usage.quantity_used:
+            raise serializers.ValidationError("Not enough stock!")
+        product.quantity_in_stock -= usage.quantity_used
+        product.save()
+    @extend_schema(
+    summary="Get usage summary",
+    tags=["Inventory Usage"],
+    parameters=[
+        OpenApiParameter(
+            name='date_from',
+            type=str,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description='Start date for usage summary filter (YYYY-MM-DD)'
+        ),
+        OpenApiParameter(
+            name='date_to',
+            type=str,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description='End date for usage summary filter (YYYY-MM-DD)'
+        ),
+    ]
+)
+    @action(detail=False, methods=['get'])
+    def usage_summary(self, request):
+        date_from = request.query_params.get('date_from')
+        date_to = request.query_params.get('date_to')
+
+        queryset = self.filter_queryset(self.get_queryset())
+        if date_from:
+            queryset = queryset.filter(used_at__date__gte=parse_date(date_from))
+        if date_to:
+            queryset = queryset.filter(used_at__date__lte=parse_date(date_to))
+
+        summary = queryset.values('product__name').annotate(total_used=Sum('quantity_used')).order_by('-total_used')
+        return Response({
+            "status_code": 200,
+            "message": "Usage summary generated",
+            "description": "Summary of inventory usage by product",
+            "data": list(summary)
+        })

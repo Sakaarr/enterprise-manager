@@ -51,6 +51,7 @@ class InventoryUsage(models.Model):
     service_record = models.ForeignKey(CarServiceRecord, on_delete=models.CASCADE, related_name="inventory_usages")
     product = models.ForeignKey("inventory.InventoryItem", on_delete=models.CASCADE)
     quantity_used = models.PositiveIntegerField()
+    used_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
 
     def __str__(self):
         return f"{self.product.name} used in {self.service_record}"

@@ -1,7 +1,7 @@
 # cars/serializers.py
 
 from rest_framework import serializers
-from .models import Car, JobEntry, Service, CarServiceRecord
+from .models import Car, JobEntry, Service, CarServiceRecord, InventoryUsage
 
 class CarSerializer(serializers.ModelSerializer):
     class Meta:
@@ -31,4 +31,11 @@ class CarServiceRecordSerializer(serializers.ModelSerializer):
     class Meta:
         model = CarServiceRecord
         fields = ['id', 'car', 'service', 'car_id','discount','amount_paid', 'service_id', 'performed_at']
+        
+        
+class InventoryUsageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InventoryUsage
+        fields = ['id', 'service_record', 'product', 'quantity_used', 'used_at']
+        read_only_fields = ['id', 'used_at']
 
