@@ -30,7 +30,7 @@ urlpatterns = [
     path('api/users/', include('users.urls')),
     path('api/cars/', include('cars.urls')),
     path('api/inventory/', include('inventory.urls')),
-]
+    path('api/billing/', include('billing.urls')),]
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 if settings.DEBUG:
     # This allows the error pages to be debugged during development, just visit
