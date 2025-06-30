@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'django_filters',
     'cars',
+    'inventory',
 ]
 
 MIDDLEWARE = [
