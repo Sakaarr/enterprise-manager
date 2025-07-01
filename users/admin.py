@@ -16,6 +16,11 @@ def register_all_app_models():
         'sessions.Session',
         'authtoken.TokenProxy',
         'authtoken.Token',  # We automatically register the authtoken app models.
+        'django_celery_beat.PeriodicTask',  # <-- use the full app_label.ModelName
+        'django_celery_beat.IntervalSchedule',
+        'django_celery_beat.CrontabSchedule',
+        'django_celery_beat.SolarSchedule',
+        'django_celery_beat.ClockedSchedule',
     ]
     for model in apps.get_models():
         try:

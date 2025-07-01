@@ -34,7 +34,9 @@ SECRET_KEY = config('SECRET_KEY')
 ALLOWED_HOSTS = config('ALLOWED_HOSTS').split(',')
 
 # Application definition
-
+CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'  # Use Redis as broker
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -51,7 +53,8 @@ INSTALLED_APPS = [
     'inventory',
     'billing',
 ]
-
+# Django-Celery-Beat
+INSTALLED_APPS += ['django_celery_beat']
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
