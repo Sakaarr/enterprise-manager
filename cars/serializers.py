@@ -4,9 +4,14 @@ from rest_framework import serializers
 from .models import Car, JobEntry, Service, CarServiceRecord, InventoryUsage
 
 class CarSerializer(serializers.ModelSerializer):
+    entered_by = serializers.SerializerMethodField()
     class Meta:
         model = Car
         fields = '__all__'
+        read_only_fields = ['created_by']
+        
+    def get_entered_by(self, obj):
+        return f"{obj.created_by.first_name} {obj.created_by.last_name}" if obj.created_by else "Unknown"
 
 class JobEntrySerializer(serializers.ModelSerializer):
     car = CarSerializer(read_only=True)

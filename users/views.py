@@ -197,6 +197,7 @@ class AdminCreateUserAPIView(APIView):
         serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
+             # Set is_staff to True for admin-created users
 
             # Send credentials email
             password = request.data.get('password')

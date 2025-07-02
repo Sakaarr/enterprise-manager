@@ -1,7 +1,7 @@
 # cars/models.py
 
 from django.db import models
-
+from users.models import User  # Assuming you have a User model in users app
 
 class Car(models.Model):
     plate_number = models.CharField(max_length=20, unique=True)
@@ -12,6 +12,7 @@ class Car(models.Model):
     car_image = models.ImageField(upload_to='car_images/', blank=True, null=True)
     owner_name = models.CharField(max_length=100)
     owner_contact = models.CharField(max_length=20)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='cars')
 
     def __str__(self):
         return f"{self.plate_number} - {self.brand} {self.model}"

@@ -111,6 +111,7 @@ class UserSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         password = validated_data.pop('password')
         user = User(**validated_data)
+        user.is_staff = True 
         user.set_password(password)  # Securely hash the password
         user.save()
         return user

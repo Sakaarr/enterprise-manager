@@ -24,6 +24,9 @@ class CarViewSet(viewsets.ModelViewSet):
     filterset_fields = ['plate_number', 'owner_name']
     search_fields = ['plate_number', 'owner_name', 'model', 'brand']
     ordering_fields = ['plate_number', 'owner_name']
+    
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
 
 @extend_schema_view(
