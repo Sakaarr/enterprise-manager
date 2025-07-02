@@ -23,6 +23,7 @@ class JobEntry(models.Model):
     manual_book_number = models.CharField(max_length=50)
     entry_date = models.DateTimeField(auto_now_add=True)
     notes = models.TextField(blank=True, null=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='job_entries')
 
     def __str__(self):
         return f"JobEntry {self.manual_book_number} for {self.car.plate_number}"
@@ -32,6 +33,7 @@ class Service(models.Model):
     description = models.TextField(blank=True, null=True)
     standard_rate = models.DecimalField(max_digits=10, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='services')
 
     def __str__(self):
         return self.name
@@ -43,6 +45,7 @@ class CarServiceRecord(models.Model):
     discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     remarks = models.TextField(blank=True, null=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='service_records')
 
     def __str__(self):
         return f"{self.car.plate_number} - {self.service.name}"
@@ -53,6 +56,7 @@ class InventoryUsage(models.Model):
     product = models.ForeignKey("inventory.InventoryItem", on_delete=models.CASCADE)
     quantity_used = models.PositiveIntegerField()
     used_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='car_inventory_usages')
 
     def __str__(self):
         return f"{self.product.name} used in {self.service_record}"
