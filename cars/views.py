@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from django.utils.dateparse import parse_date
 from django.db.models import Sum
 from rest_framework.response import Response
+from .filters import CarFilter
 
 @extend_schema_view(
     list=extend_schema(tags=["Car"]),
@@ -21,7 +22,7 @@ class CarViewSet(viewsets.ModelViewSet):
     queryset = Car.objects.all()
     serializer_class = CarSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['plate_number', 'owner_name']
+    filterset_class = CarFilter
     search_fields = ['plate_number', 'owner_name', 'model', 'brand']
     ordering_fields = ['plate_number', 'owner_name']
     
