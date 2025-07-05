@@ -2,6 +2,7 @@ from rest_framework import viewsets, filters, permissions
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from .models import InventoryItem, Supplier, ProductCategory
 from .serializers import InventoryItemSerializer, SupplierSerializer, ProductCategorySerializer
+from common.viewsets import StandardizedModelViewSet
 
 class IsAdminOrStaff(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -29,8 +30,10 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
         return super().list(request, *args, **kwargs)
 
 
+from common.viewsets import StandardizedModelViewSet
+
 @extend_schema(tags=["Supplier"])
-class SupplierViewSet(viewsets.ModelViewSet):
+class SupplierViewSet(StandardizedModelViewSet):
     queryset = Supplier.objects.all()
     serializer_class = SupplierSerializer
     permission_classes = [permissions.IsAuthenticated]

@@ -21,7 +21,7 @@ class JobEntrySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = JobEntry
-        fields = ['id', 'car', 'car_id', 'manual_book_number', 'entry_date', 'notes','created_by']
+        fields = ['id', 'car', 'car_id', 'manual_book_number', 'entry_date', 'notes','created_by','entered_by']
         
     def get_entered_by(self, obj):
         return f"{obj.created_by.first_name} {obj.created_by.last_name}" if obj.created_by else "Unknown"
