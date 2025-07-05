@@ -9,6 +9,7 @@ from django.utils.dateparse import parse_date
 from django.db.models import Sum
 from rest_framework.response import Response
 from .filters import CarFilter
+from common.viewsets import StandardizedModelViewSet
 
 @extend_schema_view(
     list=extend_schema(tags=["Car"]),
@@ -51,7 +52,7 @@ class JobEntryViewSet(viewsets.ModelViewSet):
 
 
 @extend_schema(tags=["Services"])
-class ServiceViewSet(viewsets.ModelViewSet):
+class ServiceViewSet(StandardizedModelViewSet):
     queryset = Service.objects.all()
     serializer_class = ServiceSerializer
     permission_classes = [IsAuthenticated]
@@ -65,7 +66,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
     #     return super().get_permissions()
 
 @extend_schema(tags=["Car Service Records"])
-class CarServiceRecordViewSet(viewsets.ModelViewSet):
+class CarServiceRecordViewSet(StandardizedModelViewSet):
     queryset = CarServiceRecord.objects.all().select_related('car', 'service')
     serializer_class = CarServiceRecordSerializer
     permission_classes = [IsAuthenticated]
@@ -79,7 +80,7 @@ class CarServiceRecordViewSet(viewsets.ModelViewSet):
     #     return super().get_permissions()
     
 @extend_schema(tags=["Inventory Usage"])
-class InventoryUsageViewSet(viewsets.ModelViewSet):
+class InventoryUsageViewSet(StandardizedModelViewSet):
     queryset = InventoryUsage.objects.all()
     serializer_class = InventoryUsageSerializer
     permission_classes = [permissions.IsAuthenticated]  # or your custom permission
@@ -96,6 +97,28 @@ class InventoryUsageViewSet(viewsets.ModelViewSet):
         if product.quantity_in_stock < usage.quantity_used:
             raise serializers.ValidationError("Not enough stock!")
         product.quantity_in_stock -= usage.quantity_used
+        product.save()
+    
+    def perform_update(self, serializer):
+    # Get the existing record before updating
+        instance = self.get_object()
+        old_quantity_used = instance.quantity_used
+
+        # Save the updated instance
+        updated_instance = serializer.save()
+
+        # Compute the difference
+        new_quantity_used = updated_instance.quantity_used
+        diff = old_quantity_used - new_quantity_used  # positive if we're reducing usage
+
+        # Update the stock
+        product = updated_instance.product
+        new_stock = product.quantity_in_stock + diff
+
+        if new_stock < 0:
+            raise serializers.ValidationError("Stock cannot go below zero!")
+
+        product.quantity_in_stock = new_stock
         product.save()
     @extend_schema(
     summary="Get usage summary",
@@ -128,10 +151,18 @@ class InventoryUsageViewSet(viewsets.ModelViewSet):
         if date_to:
             queryset = queryset.filter(used_at__date__lte=parse_date(date_to))
 
-        summary = queryset.values('product__name').annotate(total_used=Sum('quantity_used')).order_by('-total_used')
+        summary = queryset.values('product__name','product__quantity_in_stock').annotate(total_used=Sum('quantity_used')).order_by('-total_used')
+        readable_summary = [
+        {
+            "Product Name": item["product__name"],
+            "Remaining Stock": item["product__quantity_in_stock"],
+            "Total Used till now": item["total_used"],
+        }
+        for item in summary
+        ]
         return Response({
             "status_code": 200,
             "message": "Usage summary generated",
             "description": "Summary of inventory usage by product",
-            "data": list(summary)
+            "data": list(readable_summary)
         })

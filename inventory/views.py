@@ -11,7 +11,7 @@ class IsAdminOrStaff(permissions.BasePermission):
         )
 
 @extend_schema(tags=["Inventory"])
-class InventoryItemViewSet(viewsets.ModelViewSet):
+class InventoryItemViewSet(StandardizedModelViewSet):
     queryset = InventoryItem.objects.all().select_related('supplier', 'category')
     serializer_class = InventoryItemSerializer
     permission_classes = [IsAdminOrStaff]
@@ -52,7 +52,7 @@ class SupplierViewSet(StandardizedModelViewSet):
         return super().list(request, *args, **kwargs)
     
 @extend_schema(tags=["Product Category"])
-class ProductCategoryViewSet(viewsets.ModelViewSet):
+class ProductCategoryViewSet(StandardizedModelViewSet):
     queryset = ProductCategory.objects.all()
     serializer_class = ProductCategorySerializer
     permission_classes = [permissions.IsAuthenticated]
