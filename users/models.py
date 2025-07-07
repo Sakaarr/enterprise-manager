@@ -30,3 +30,16 @@ class User(AbstractUser):
         return self.email
     
     
+class Article(models.Model):
+    title = models.CharField(max_length=255)
+    description = models.TextField()
+    date = models.DateField()
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    keywords = models.CharField(max_length = 100)  # Stores keywords as a list of strings
+    category = models.CharField(max_length=100)
+    thumbnail = models.ImageField(upload_to='aaecphotos', null=True, blank=True)
+    featured_image = models.ImageField(upload_to='aaecphotos', null=True, blank=True)
+    featured = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.title

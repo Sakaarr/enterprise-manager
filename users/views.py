@@ -1,4 +1,4 @@
-from .serializers import SetNewPasswordSerializer,ChangePasswordSerializer,UserSerializer,LoginSerializer,ProfileSerializer, PasswordResetSerializer, RoleSerializer
+from .serializers import ArticleSerializer,SetNewPasswordSerializer,ChangePasswordSerializer,UserSerializer,LoginSerializer,ProfileSerializer, PasswordResetSerializer, RoleSerializer
 from django.contrib.auth import get_user_model, authenticate, login, logout
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status, generics
@@ -23,6 +23,7 @@ from django.core.mail import send_mail
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from drf_spectacular.utils import extend_schema, OpenApiParameter
+from rest_framework.exceptions import NotFound
 
 User = get_user_model()
 env = environ.Env()
@@ -282,3 +283,90 @@ class PasswordResetConfirmView(APIView):
                 "message": "Invalid token or user ID."
             }, status=status.HTTP_400_BAD_REQUEST)
 
+
+class ArticleListCreateView(generics.ListCreateAPIView):
+    # permission_classes = [IsAuthenticated]
+    queryset = Article.objects.all()
+    serializer_class = ArticleSerializer
+    def get_permissions(self):
+        # Allow all authenticated users to view the product
+        if self.request.method == 'GET':
+            return []
+        # For other methods (PUT, DELETE), require both IsAuthenticated and IsVendorOrStaff
+        return [IsAuthenticated()]
+
+    @extend_schema(
+        responses={
+            200: ArticleSerializer,
+            201: ArticleSerializer,
+            400: {'type': 'object', 'properties': {'detail': {'type': 'string'}}},
+        }
+    )
+    def list(self, request, *args, **kwargs):
+        articles = self.get_queryset()
+        serializer = self.get_serializer(articles, many=True)
+        return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        responses={
+            201: ArticleSerializer,
+            400: {'type': 'object', 'properties': {'detail': {'type': 'string'}}},
+        }
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"status": "success", "data": serializer.data}, status=status.HTTP_201_CREATED)
+        return Response({"status": "error", "message": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+# For retrieving, updating, or deleting a specific article
+class ArticleDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Article.objects.all()
+    serializer_class = ArticleSerializer
+    def get_permissions(self):
+        # Allow all authenticated users to view the product
+        if self.request.method == 'GET':
+            return []
+        # For other methods (PUT, DELETE), require both IsAuthenticated and IsVendorOrStaff
+        return [IsAuthenticated()]
+
+    @extend_schema(
+        responses={
+            200: ArticleSerializer,
+            404: {'type': 'object', 'properties': {'detail': {'type': 'string'}}},
+        }
+    )
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            article = self.get_object()
+            serializer = self.get_serializer(article)
+            return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
+        except Article.DoesNotExist:
+            raise NotFound(detail="Article not found")
+
+    @extend_schema(
+        responses={
+            200: ArticleSerializer,
+            400: {'type': 'object', 'properties': {'detail': {'type': 'string'}}},
+            404: {'type': 'object', 'properties': {'detail': {'type': 'string'}}},
+        }
+    )
+    def update(self, request, *args, **kwargs):
+        article = self.get_object()
+        serializer = self.get_serializer(article, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
+        return Response({"status": "error", "message": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        responses={
+            204: None,
+            404: {'type': 'object', 'properties': {'detail': {'type': 'string'}}},
+        }
+    )
+    def destroy(self, request, *args, **kwargs):
+        article = self.get_object()
+        article.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -14,5 +14,7 @@ urlpatterns = [
     path('change-password/', apiview.ChangePasswordAPIView.as_view(), name='change-password'),
     path('password_reset_confirm/<uidb64>/<token>/', apiview.PasswordResetConfirmView.as_view(),
          name='password_reset_confirm'),
+    path('articles/', apiview.ArticleListCreateView.as_view(), name='article-list-create'),
+    path('articles/<int:pk>/', apiview.ArticleDetailView.as_view(), name='article-detail'),
 ]
 urlpatterns += router.urls
