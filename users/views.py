@@ -1,4 +1,4 @@
-from .serializers import ContactUsSerializer,ArticleSerializer,SetNewPasswordSerializer,ChangePasswordSerializer,UserSerializer,LoginSerializer,ProfileSerializer, PasswordResetSerializer, RoleSerializer
+from .serializers import TeamMemberSerializer,ContactUsSerializer,ArticleSerializer,SetNewPasswordSerializer,ChangePasswordSerializer,UserSerializer,LoginSerializer,ProfileSerializer, PasswordResetSerializer, RoleSerializer
 from django.contrib.auth import get_user_model, authenticate, login, logout
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status, generics
@@ -7,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework import viewsets
 from .models import *
 from common.response import error_response, success_response
+from common.viewsets import StandardizedModelViewSet
 from django.contrib.auth.mixins import LoginRequiredMixin
 from common.custom_permission import IsOwnerOrReadOnly, IsAdminRole
 from django.utils.encoding import force_bytes
@@ -483,3 +484,19 @@ class ContactUsAPIView(APIView):
             "There were errors in your submission.",
             data=serializer.errors,
         )
+
+
+class TeamMemberViewSet(StandardizedModelViewSet):
+    """
+    A viewset for viewing and editing team member instances.
+    """
+    queryset = TeamMember.objects.all().order_by('name') 
+    serializer_class = TeamMemberSerializer
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            # Allow public access for GET requests
+            return []
+        # Restrict other methods to authenticated users only
+        return [permission() for permission in self.permission_classes]
+
+    permission_classes = [IsAuthenticated]

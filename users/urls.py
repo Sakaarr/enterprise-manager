@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 app_name = "Auth API"
 router = DefaultRouter()
 router.register(r'roles', apiview.RoleViewSet, basename='role')
+router.register(r'team-members', apiview.TeamMemberViewSet, basename='team-member')
 
 urlpatterns = [
     path("login/", apiview.LoginApiView.as_view(), name="login"),
