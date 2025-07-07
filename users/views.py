@@ -1,4 +1,4 @@
-from .serializers import ArticleSerializer,SetNewPasswordSerializer,ChangePasswordSerializer,UserSerializer,LoginSerializer,ProfileSerializer, PasswordResetSerializer, RoleSerializer
+from .serializers import ContactUsSerializer,ArticleSerializer,SetNewPasswordSerializer,ChangePasswordSerializer,UserSerializer,LoginSerializer,ProfileSerializer, PasswordResetSerializer, RoleSerializer
 from django.contrib.auth import get_user_model, authenticate, login, logout
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status, generics
@@ -22,7 +22,7 @@ import environ
 from django.core.mail import send_mail
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from rest_framework.exceptions import NotFound
 
 User = get_user_model()
@@ -370,3 +370,116 @@ class ArticleDetailView(generics.RetrieveUpdateDestroyAPIView):
         article = self.get_object()
         article.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ContactUsAPIView(APIView):
+    @extend_schema(
+        request=ContactUsSerializer,
+        responses={
+            201: ContactUsSerializer,
+            400: OpenApiExample(
+                name="Invalid Submission",
+                value={
+                    "error_code": 1,
+                    "status_code": 400,
+                    "message": "Invalid data.",
+                    "errors": {
+                        "message": "There were errors in your submission."
+                    },
+                    "data": {
+                        "email": ["This field is required."],
+                        "message": ["This field is required."]
+                    }
+                },
+                response_only=True
+            ),
+            500: OpenApiExample(
+                name="Email Send Failure",
+                value={
+                    "error_code": 1,
+                    "status_code": 500,
+                    "message": "Failed to send email.",
+                    "errors": {
+                        "message": "SMTP connection timeout"
+                    },
+                    "data": None
+                },
+                response_only=True
+            )
+        },
+        summary="Submit Contact Form",
+        description="API to submit a contact form. Sends an email to the admin and stores the message."
+    )
+    def post(self, request):
+        serializer = ContactUsSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            try:
+                subject = f"New Contact Us Message: {serializer.validated_data['subject']}"
+                message = f"""
+    New message from Contact Us form:
+
+    Name: {serializer.validated_data['first_name']} {serializer.validated_data['last_name']}
+    Email: {serializer.validated_data['email']}
+    Contact Number: {serializer.validated_data.get('phone_number', 'N/A')}
+    Subject: {serializer.validated_data['subject']}
+    Message: {serializer.validated_data['message']}
+    """
+
+                send_mail(
+                    subject,
+                    message,
+                    settings.EMAIL_HOST_USER,
+                    ["axortechnp@gmail.com"],
+                    fail_silently=False,
+                )
+            except Exception as e:
+                return error_response(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "Failed to send email to admin.",
+                    str(e),
+                )
+
+            try:
+                user_subject = "Thank You - We’ve Received Your Message"
+                user_message = f"""
+    Hi {serializer.validated_data['first_name']} {serializer.validated_data['last_name']},
+
+    Thank you for reaching out to us!
+
+    We have received your message and our team will get back to you shortly.
+
+    Here’s what you submitted:
+    Subject: {serializer.validated_data['subject']}
+    Message: {serializer.validated_data['message']}
+
+    Best regards,  
+    Auto Garden Team
+    """
+                send_mail(
+                    user_subject,
+                    user_message,
+                    settings.EMAIL_HOST_USER,
+                    [serializer.validated_data['email']],
+                    fail_silently=False,
+                )
+            except Exception as e:
+                return error_response(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "Failed to send confirmation to user.",
+                    str(e),
+                )
+
+            return success_response(
+                status.HTTP_201_CREATED,
+                "Contact message submitted successfully.",
+                "Your message has been recorded and sent to the admin.",
+                data=serializer.data,
+            )
+
+        return error_response(
+            status.HTTP_400_BAD_REQUEST,
+            "Invalid data.",
+            "There were errors in your submission.",
+            data=serializer.errors,
+        )
