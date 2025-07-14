@@ -486,7 +486,7 @@ class ContactUsAPIView(APIView):
         )
 
 
-class TeamMemberViewSet(StandardizedModelViewSet):
+class TeamMemberViewSet(StandardizedModelViewSet): 
     """
     A viewset for viewing and editing team member instances.
     """
@@ -500,3 +500,21 @@ class TeamMemberViewSet(StandardizedModelViewSet):
         return [permission() for permission in self.permission_classes]
 
     permission_classes = [IsAuthenticated]
+    
+    
+    
+class CheckLoginView(APIView):
+
+    permission_classes = []
+    @extend_schema(
+        operation_id="API To Check User Authentication",
+        description="API to check if the user is authenticated using username/password or token",
+        request=None,  # No serializer required here
+        responses={200: 'User is authenticated', 401: 'User is not authenticated'}
+    )
+      # No permissions required to access this view
+
+    def get(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            return Response({"authenticated": True, "user": request.user.email}, status=200)
+        return Response({"authenticated": False}, status=401)

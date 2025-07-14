@@ -18,5 +18,6 @@ urlpatterns = [
     path('articles/', apiview.ArticleListCreateView.as_view(), name='article-list-create'),
     path('articles/<int:pk>/', apiview.ArticleDetailView.as_view(), name='article-detail'),
     path('contact-us/', apiview.ContactUsAPIView.as_view(), name='contact-us'),
+    path('checklogin/', apiview.CheckLoginView.as_view(), name='checklogin'),
 ]
 urlpatterns += router.urls
