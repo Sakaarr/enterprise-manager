@@ -154,7 +154,7 @@ class ForgetPasswordView(APIView):
         print(uid, token)
         BASE_URL = env("BASE_URL")
 
-        reset_url = f"http://localhost:8000/api/users/reset-password-confirm/{uid}/{token}/"
+        reset_url = f"http://localhost:3000/reset-password-confirm/{uid}/{token}/"
 
         send_mail(
             'Password Reset',
