@@ -21,7 +21,7 @@ urlpatterns = [
     path('articles/<int:pk>/', apiview.ArticleDetailView.as_view(), name='article-detail'),
     path('contact-us/', apiview.ContactUsAPIView.as_view(), name='contact-us'),
     path('checklogin/', apiview.CheckLoginView.as_view(), name='checklogin'),
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ]
 urlpatterns += router.urls
