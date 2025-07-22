@@ -152,7 +152,7 @@ class ForgetPasswordView(APIView):
         token = default_token_generator.make_token(user)
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         print(uid, token)
-        BASE_URL = env("BASE_URL")
+        # BASE_URL = env("BASE_URL")
 
         reset_url = f"http://localhost:3000/reset-password-confirm/{uid}/{token}/"
 

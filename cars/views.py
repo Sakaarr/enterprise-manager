@@ -50,6 +50,10 @@ class JobEntryViewSet(viewsets.ModelViewSet):
     }
     ordering_fields = ['entry_date', 'manual_book_number']
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context.update({"request": self.request})
+        return context
 
 @extend_schema(tags=["Services"])
 class ServiceViewSet(StandardizedModelViewSet):
