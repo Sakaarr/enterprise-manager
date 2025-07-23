@@ -38,10 +38,12 @@ class JobEntrySerializer(serializers.ModelSerializer):
         return job_entry
 class ServiceSerializer(serializers.ModelSerializer):
     entered_by = serializers.SerializerMethodField()
-    read_only_fields = ['created_by']
+    
     class Meta:
         model = Service
+        read_only_fields = ['created_by']
         fields = '__all__'
+        
         
         
     def get_entered_by(self, obj):
