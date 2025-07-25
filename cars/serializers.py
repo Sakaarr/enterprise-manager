@@ -24,6 +24,19 @@ class JobEntrySerializer(serializers.ModelSerializer):
 
     def get_entered_by(self, obj):
         return f"{obj.created_by.first_name} {obj.created_by.last_name}" if obj.created_by else "Unknown"
+    
+    def update(self, instance, validated_data):
+        car_data = validated_data.pop('car', None)
+        if car_data:
+            car = instance.car
+            for attr, value in car_data.items():
+                setattr(car, attr, value)
+            car.save()
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
 
     def create(self, validated_data):
         car_data = validated_data.pop('car')
