@@ -98,28 +98,46 @@ class CarServiceRecordViewSet(StandardizedModelViewSet):
     @action(detail=True, methods=['post'])
     def add_service(self, request, pk=None):
         """Add a new service entry to existing car service record"""
-        service_record = self.get_object()
-        
-        service_id = request.data.get('service_id')
-        remarks = request.data.get('remarks', '')
-        
-        if not service_id:
-            return Response({'error': 'service_id is required'}, status=400)
-        
         try:
-            service = Service.objects.get(id=service_id)
-        except Service.DoesNotExist:
-            return Response({'error': 'Service not found'}, status=404)
-        
-        service_entry = ServiceEntry.objects.create(
-            service_record=service_record,
-            service=service,
-            remarks=remarks,
-            created_by=request.user
-        )
-        
-        serializer = ServiceEntrySerializer(service_entry)
-        return Response(serializer.data)
+            # Debug: Print the pk value
+            print(f"Looking for CarServiceRecord with pk: {pk}")
+            
+            # Try to get the object with explicit error handling
+            try:
+                service_record = CarServiceRecord.objects.select_related('car').get(pk=pk)
+                print(f"Found service record: {service_record}")
+            except CarServiceRecord.DoesNotExist:
+                print(f"CarServiceRecord with pk={pk} does not exist")
+                return Response({
+                    'error': f'Car service record with id {pk} not found'
+                }, status=404)
+            
+            service_id = request.data.get('service_id')
+            remarks = request.data.get('remarks', '')
+            
+            if not service_id:
+                return Response({'error': 'service_id is required'}, status=400)
+            
+            try:
+                service = Service.objects.get(id=service_id)
+            except Service.DoesNotExist:
+                return Response({'error': 'Service not found'}, status=404)
+            
+            service_entry = ServiceEntry.objects.create(
+                service_record=service_record,
+                service=service,
+                remarks=remarks,
+                created_by=request.user
+            )
+            
+            serializer = ServiceEntrySerializer(service_entry)
+            return Response(serializer.data, status=201)
+            
+        except Exception as e:
+            print(f"Unexpected error in add_service: {str(e)}")
+            return Response({
+                'error': f'An unexpected error occurred: {str(e)}'
+            }, status=500)
 
     @extend_schema(
         parameters=[
@@ -166,6 +184,8 @@ class CarServiceRecordViewSet(StandardizedModelViewSet):
 
         service_entry.delete()
         return Response(status=204)
+    
+    
 
 @extend_schema(tags=["Inventory Usage"])
 class InventoryUsageViewSet(StandardizedModelViewSet):
