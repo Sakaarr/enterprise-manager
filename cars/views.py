@@ -1,6 +1,6 @@
 from rest_framework import viewsets, filters, permissions, serializers
-from .models import Car, JobEntry, Service, CarServiceRecord, InventoryUsage
-from .serializers import CarSerializer, JobEntrySerializer, ServiceSerializer, CarServiceRecordSerializer, InventoryUsageSerializer
+from .models import Car, JobEntry, Service, CarServiceRecord, InventoryUsage, ServiceEntry
+from .serializers import CarSerializer, JobEntrySerializer, ServiceSerializer, CarServiceRecordSerializer, InventoryUsageSerializer, ServiceEntrySerializer
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema_view, extend_schema, OpenApiParameter
@@ -10,7 +10,7 @@ from django.db.models import Sum
 from rest_framework.response import Response
 from .filters import CarFilter
 from common.viewsets import StandardizedModelViewSet
-
+from drf_spectacular.types import OpenApiTypes
 @extend_schema_view(
     list=extend_schema(tags=["Car"]),
     create=extend_schema(tags=["Car"]),
@@ -71,18 +71,102 @@ class ServiceViewSet(StandardizedModelViewSet):
 
 @extend_schema(tags=["Car Service Records"])
 class CarServiceRecordViewSet(StandardizedModelViewSet):
-    queryset = CarServiceRecord.objects.all().select_related('car', 'service')
+    queryset = CarServiceRecord.objects.all().select_related('car').prefetch_related('service_entries__service')
     serializer_class = CarServiceRecordSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['car__plate_number', 'car__owner_name']
-    ordering_fields = ['service_date', 'car__plate_number']
+    ordering_fields = ['created_at', 'car__plate_number']
+    ordering = ['-created_at']
 
-    # def get_permissions(self):
-    #     if self.action in ['create', 'update', 'partial_update']:
-    #         return [IsAuthenticated]
-    #     return super().get_permissions()
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    @extend_schema(
+        methods=['post'],
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'service_id': {'type': 'integer'},
+                    'remarks': {'type': 'string', 'required': False}
+                }
+            }
+        },
+        responses={200: ServiceEntrySerializer}
+    )
+    @action(detail=True, methods=['post'])
+    def add_service(self, request, pk=None):
+        """Add a new service entry to existing car service record"""
+        service_record = self.get_object()
+        
+        service_id = request.data.get('service_id')
+        remarks = request.data.get('remarks', '')
+        
+        if not service_id:
+            return Response({'error': 'service_id is required'}, status=400)
+        
+        try:
+            service = Service.objects.get(id=service_id)
+        except Service.DoesNotExist:
+            return Response({'error': 'Service not found'}, status=404)
+        
+        service_entry = ServiceEntry.objects.create(
+            service_record=service_record,
+            service=service,
+            remarks=remarks,
+            created_by=request.user
+        )
+        
+        serializer = ServiceEntrySerializer(service_entry)
+        return Response(serializer.data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='car_id',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description='Filter by car ID'
+            ),
+        ]
+    )
+    def list(self, request, *args, **kwargs):
+        """List all car service records with optional car filtering"""
+        car_id = request.query_params.get('car_id')
+        if car_id:
+            self.queryset = self.queryset.filter(car_id=car_id)
+        return super().list(request, *args, **kwargs)
     
+    @extend_schema(
+    methods=['delete'],
+    parameters=[
+        OpenApiParameter(
+            name='entry_id',
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.QUERY,
+            description='ID of the service entry to delete'
+        )
+    ],
+    responses={204: None}
+)
+    @action(detail=True, methods=['delete'])
+    def delete_service(self, request, pk=None):
+        """Delete a service entry from an existing car service record"""
+        service_record = self.get_object()
+        entry_id = request.query_params.get('entry_id')
+
+        if not entry_id:
+            return Response({'error': 'entry_id is required'}, status=400)
+
+        try:
+            service_entry = service_record.service_entries.get(id=entry_id)
+        except ServiceEntry.DoesNotExist:
+            return Response({'error': 'ServiceEntry not found'}, status=404)
+
+        service_entry.delete()
+        return Response(status=204)
+
 @extend_schema(tags=["Inventory Usage"])
 class InventoryUsageViewSet(StandardizedModelViewSet):
     queryset = InventoryUsage.objects.all()

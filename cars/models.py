@@ -47,18 +47,26 @@ class Service(models.Model):
         return self.name
     
 class CarServiceRecord(models.Model):
-    car = models.ForeignKey(Car, on_delete=models.CASCADE, related_name="service_records")
-    service = models.ForeignKey(Service, on_delete=models.CASCADE)
-    performed_at = models.DateTimeField(auto_now_add=True)
-    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    remarks = models.TextField(blank=True, null=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='service_records')
+    car = models.OneToOneField(Car, on_delete=models.CASCADE, related_name="service_record")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_service_records')
 
     def __str__(self):
-        return f"{self.car.plate_number} - {self.service.name}"
-    
-    
+        return f"Service Record for {self.car.plate_number}"
+
+class ServiceEntry(models.Model):
+    service_record = models.ForeignKey(CarServiceRecord, on_delete=models.CASCADE, related_name="service_entries")
+    service = models.ForeignKey(Service, on_delete=models.CASCADE)
+    performed_at = models.DateTimeField(auto_now_add=True)
+    remarks = models.TextField(blank=True, null=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='service_entries')
+
+    def __str__(self):
+        return f"{self.service_record.car.plate_number} - {self.service.name}"
+
+    class Meta:
+        ordering = ['-performed_at']
 class InventoryUsage(models.Model):
     service_record = models.ForeignKey(CarServiceRecord, on_delete=models.CASCADE, related_name="inventory_usages")
     product = models.ForeignKey("inventory.InventoryItem", on_delete=models.CASCADE)

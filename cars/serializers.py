@@ -1,7 +1,7 @@
 # cars/serializers.py
 from django.utils.timezone import now
 from rest_framework import serializers
-from .models import Car, JobEntry, Service, CarServiceRecord, InventoryUsage
+from .models import Car, JobEntry, Service, CarServiceRecord, InventoryUsage, ServiceEntry
 
 class CarSerializer(serializers.ModelSerializer):
     entered_by = serializers.SerializerMethodField()
@@ -62,20 +62,75 @@ class ServiceSerializer(serializers.ModelSerializer):
     def get_entered_by(self, obj):
         return f"{obj.created_by.first_name} {obj.created_by.last_name}" if obj.created_by else "Unknown"
 
+class ServiceEntrySerializer(serializers.ModelSerializer):
+    entered_by = serializers.SerializerMethodField()
+    service = ServiceSerializer(read_only=True)
+    service_id = serializers.PrimaryKeyRelatedField(queryset=Service.objects.all(), write_only=True, source='service')
+
+    class Meta:
+        model = ServiceEntry
+        fields = ['id', 'service', 'service_id', 'performed_at', 'remarks', 'created_by', 'entered_by']
+
+    def get_entered_by(self, obj):
+        return f"{obj.created_by.first_name} {obj.created_by.last_name}" if obj.created_by else "Unknown"
+
 class CarServiceRecordSerializer(serializers.ModelSerializer):
     entered_by = serializers.SerializerMethodField()
     car = CarSerializer(read_only=True)
-    service = ServiceSerializer(read_only=True)
+    service_entries = ServiceEntrySerializer(many=True, read_only=True)
     car_id = serializers.PrimaryKeyRelatedField(queryset=Car.objects.all(), write_only=True, source='car')
-    service_id = serializers.PrimaryKeyRelatedField(queryset=Service.objects.all(), write_only=True, source='service')
-    read_only_fields = ['created_by']
+    
+    # Fields for adding new service entries
+    services = serializers.ListField(
+        child=serializers.DictField(), 
+        write_only=True, 
+        required=False,
+        help_text="List of services to add: [{'service_id': 1, 'remarks': 'optional'}]"
+    )
 
     class Meta:
         model = CarServiceRecord
-        fields = ['id', 'car', 'service', 'car_id','discount','amount_paid', 'service_id', 'performed_at','created_by','entered_by']
-        
+        fields = ['id', 'car', 'car_id', 'service_entries', 'services', 'created_at', 'updated_at', 'created_by', 'entered_by']
+        read_only_fields = ['created_by', 'created_at', 'updated_at']
+
     def get_entered_by(self, obj):
         return f"{obj.created_by.first_name} {obj.created_by.last_name}" if obj.created_by else "Unknown"
+
+    def create(self, validated_data):
+        services_data = validated_data.pop('services', [])
+        car = validated_data.pop('car')
+        
+        # Get or create service record for the car
+        service_record, created = CarServiceRecord.objects.get_or_create(
+            car=car,
+            defaults={'created_by': self.context['request'].user}
+        )
+        
+        # Add new service entries
+        for service_data in services_data:
+            ServiceEntry.objects.create(
+                service_record=service_record,
+                service_id=service_data['service_id'],
+                remarks=service_data.get('remarks', ''),
+                created_by=self.context['request'].user
+            )
+        
+        return service_record
+
+    def update(self, instance, validated_data):
+        services_data = validated_data.pop('services', [])
+        
+        # Add new service entries
+        for service_data in services_data:
+            ServiceEntry.objects.create(
+                service_record=instance,
+                service_id=service_data['service_id'],
+                remarks=service_data.get('remarks', ''),
+                created_by=self.context['request'].user
+            )
+        
+        return instance
+
         
         
 class InventoryUsageSerializer(serializers.ModelSerializer):
