@@ -83,61 +83,56 @@ class CarServiceRecordViewSet(StandardizedModelViewSet):
         serializer.save(created_by=self.request.user)
 
     @extend_schema(
-        methods=['post'],
-        request={
-            'application/json': {
-                'type': 'object',
-                'properties': {
-                    'service_id': {'type': 'integer'},
-                    'remarks': {'type': 'string', 'required': False}
-                }
-            }
-        },
-        responses={200: ServiceEntrySerializer}
-    )
-    @action(detail=True, methods=['post'])
-    def add_service(self, request, pk=None):
-        """Add a new service entry to existing car service record"""
+    methods=['post'],
+    request={
+        'application/json': {
+            'type': 'object',
+            'properties': {
+                'car_id': {'type': 'integer'},
+                'service_id': {'type': 'integer'},
+                'remarks': {'type': 'string', 'required': False}
+            },
+            'required': ['car_id', 'service_id']
+        }
+    },
+    responses={201: ServiceEntrySerializer}
+)
+    @action(detail=False, methods=['post'], url_path='add_service')
+    def add_service(self, request):
+        """Add a new service entry by car_id (creates record if not exists)"""
+        car_id = request.data.get('car_id')
+        service_id = request.data.get('service_id')
+        remarks = request.data.get('remarks', '')
+
+        if not car_id or not service_id:
+            return Response({'error': 'Both car_id and service_id are required.'}, status=400)
+
         try:
-            # Debug: Print the pk value
-            print(f"Looking for CarServiceRecord with pk: {pk}")
-            
-            # Try to get the object with explicit error handling
-            try:
-                service_record = CarServiceRecord.objects.select_related('car').get(pk=pk)
-                print(f"Found service record: {service_record}")
-            except CarServiceRecord.DoesNotExist:
-                print(f"CarServiceRecord with pk={pk} does not exist")
-                return Response({
-                    'error': f'Car service record with id {pk} not found'
-                }, status=404)
-            
-            service_id = request.data.get('service_id')
-            remarks = request.data.get('remarks', '')
-            
-            if not service_id:
-                return Response({'error': 'service_id is required'}, status=400)
-            
-            try:
-                service = Service.objects.get(id=service_id)
-            except Service.DoesNotExist:
-                return Response({'error': 'Service not found'}, status=404)
-            
-            service_entry = ServiceEntry.objects.create(
-                service_record=service_record,
-                service=service,
-                remarks=remarks,
-                created_by=request.user
-            )
-            
-            serializer = ServiceEntrySerializer(service_entry)
-            return Response(serializer.data, status=201)
-            
-        except Exception as e:
-            print(f"Unexpected error in add_service: {str(e)}")
-            return Response({
-                'error': f'An unexpected error occurred: {str(e)}'
-            }, status=500)
+            car = Car.objects.get(id=car_id)
+        except Car.DoesNotExist:
+            return Response({'error': 'Car not found'}, status=404)
+
+        # Check or create CarServiceRecord for the car
+        service_record, created = CarServiceRecord.objects.get_or_create(
+            car=car,
+            defaults={'created_by': request.user}
+        )
+
+        try:
+            service = Service.objects.get(id=service_id)
+        except Service.DoesNotExist:
+            return Response({'error': 'Service not found'}, status=404)
+
+        # Create new service entry
+        service_entry = ServiceEntry.objects.create(
+            service_record=service_record,
+            service=service,
+            remarks=remarks,
+            created_by=request.user
+        )
+
+        serializer = ServiceEntrySerializer(service_entry)
+        return Response(serializer.data, status=201)
 
     @extend_schema(
         parameters=[
