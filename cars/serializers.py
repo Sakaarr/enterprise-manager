@@ -135,10 +135,34 @@ class CarServiceRecordSerializer(serializers.ModelSerializer):
         
 class InventoryUsageSerializer(serializers.ModelSerializer):
     entered_by = serializers.SerializerMethodField()
+    car_id = serializers.IntegerField(write_only=True, required=True)
+
     class Meta:
         model = InventoryUsage
-        fields = ['id', 'service_record', 'product', 'quantity_used', 'used_at','created_by','entered_by']
-        read_only_fields = ['id', 'used_at','created_by']
-    
+        fields = [
+            'id', 'product', 'quantity_used', 'used_at',
+            'created_by', 'entered_by', 'car_id'
+        ]
+        read_only_fields = ['id', 'used_at', 'created_by']
+
     def get_entered_by(self, obj):
         return f"{obj.created_by.first_name} {obj.created_by.last_name}" if obj.created_by else "Unknown"
+
+    def create(self, validated_data):
+        car_id = validated_data.pop('car_id')
+
+        # Find the latest matching service record for the car
+        service_record = CarServiceRecord.objects.filter(
+            car_id=car_id
+        ).order_by('-id').first()
+
+        if not service_record:
+            raise serializers.ValidationError("No service record found for this car.")
+
+        validated_data['service_record'] = service_record
+
+        request = self.context.get("request")
+        if request and request.user and not validated_data.get("created_by"):
+            validated_data["created_by"] = request.user
+
+        return super().create(validated_data)

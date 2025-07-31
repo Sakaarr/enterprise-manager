@@ -220,13 +220,14 @@ class InventoryUsageViewSet(StandardizedModelViewSet):
     ordering_fields = ['used_at', 'quantity_used']
     search_fields = ['product__name']
 
-
+    
     def perform_create(self, serializer):
-        usage = serializer.save()
-        # Update product stock
+        usage = serializer.save(created_by=self.request.user)
+
         product = usage.product
         if product.quantity_in_stock < usage.quantity_used:
             raise serializers.ValidationError("Not enough stock!")
+
         product.quantity_in_stock -= usage.quantity_used
         product.save()
     
@@ -251,6 +252,53 @@ class InventoryUsageViewSet(StandardizedModelViewSet):
 
         product.quantity_in_stock = new_stock
         product.save()
+        
+    @extend_schema(
+    summary="Get inventory usage for a specific car",
+    tags=["Inventory Usage"],
+    parameters=[
+        OpenApiParameter(
+            name='car_id',
+            type=int,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            description='ID of the car to filter inventory usage'
+        ),
+    ]
+)
+    @action(detail=False, methods=['get'], url_path='by-car')
+    def usage_by_car(self, request):
+        car_id = request.query_params.get('car_id')
+        if not car_id:
+            return Response({
+                "status_code": 400,
+                "message": "car_id query parameter is required"
+            }, status=400)
+
+        try:
+            car_id = int(car_id)
+        except ValueError:
+            return Response({
+                "status_code": 400,
+                "message": "car_id must be an integer"
+            }, status=400)
+
+        # Filter usage records through related service_record -> car
+        queryset = self.filter_queryset(
+            self.get_queryset().filter(service_record__car_id=car_id)
+        )
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            "status_code": 200,
+            "message": f"Inventory usage for car ID {car_id}",
+            "data": serializer.data
+        })
     @extend_schema(
     summary="Get usage summary",
     tags=["Inventory Usage"],
