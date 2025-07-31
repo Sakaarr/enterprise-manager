@@ -180,13 +180,41 @@ class CarServiceRecordViewSet(StandardizedModelViewSet):
         service_entry.delete()
         return Response(status=204)
     
+    @extend_schema(
+    methods=['get'],
+    parameters=[
+        OpenApiParameter(
+            name='car_id',
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.QUERY,
+            description='ID of the car to fetch service record(s) for',
+            required=True,
+        ),
+    ],
+    responses={200: CarServiceRecordSerializer(many=True)}
+)
+    @action(detail=False, methods=['get'], url_path='get_by_car')
+    def get_by_car(self, request):
+        """Retrieve service record(s) by car_id"""
+        car_id = request.query_params.get('car_id')
+
+        if not car_id:
+            return Response({'error': 'car_id is required'}, status=400)
+
+        records = CarServiceRecord.objects.filter(car_id=car_id).select_related('car').prefetch_related('service_entries__service')
+
+        if not records.exists():
+            return Response({'error': 'No service records found for the given car_id'}, status=404)
+
+        serializer = self.get_serializer(records, many=True)
+        return Response(serializer.data, status=200)
     
 
 @extend_schema(tags=["Inventory Usage"])
 class InventoryUsageViewSet(StandardizedModelViewSet):
     queryset = InventoryUsage.objects.all()
     serializer_class = InventoryUsageSerializer
-    permission_classes = [permissions.IsAuthenticated]  # or your custom permission
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
     filterset_fields = ['service_record', 'product', 'used_at']
     ordering_fields = ['used_at', 'quantity_used']
