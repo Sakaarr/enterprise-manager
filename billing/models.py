@@ -1,41 +1,25 @@
 from django.db import models
-from cars.models import CarServiceRecord
-from inventory.models import InventoryItem
-
+from cars.models import Car
+from users.models import User
 class Bill(models.Model):
-    service_record = models.OneToOneField(CarServiceRecord, on_delete=models.CASCADE, related_name="bill")
-    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
-    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
-    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    car = models.ForeignKey(Car, on_delete=models.CASCADE, related_name='bills',default=None)
+    total_service_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    total_inventory_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    amount_remaining = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+    entered_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
 
-    @property
-    def amount_due(self):
-        return self.total_amount - self.amount_paid
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Bill'
+        verbose_name_plural = 'Bills'
+
+    def __str__(self):
+        return f"Bill for Car {self.car.plate_number} (ID: {self.id})"
 
     @property
     def is_fully_paid(self):
-        return self.amount_due <= 0
-
-    def __str__(self):
-        return f"Bill for {self.service_record.car} - {self.created_at.date()}"
-
-class BillLineItem(models.Model):
-    bill = models.ForeignKey(Bill, on_delete=models.CASCADE, related_name="line_items")
-    description = models.CharField(max_length=255)
-    quantity = models.PositiveIntegerField(default=1)
-    rate = models.DecimalField(max_digits=10, decimal_places=2)
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-
-    def __str__(self):
-        return f"{self.description} - {self.amount}"
-
-class Payment(models.Model):
-    bill = models.ForeignKey(Bill, on_delete=models.CASCADE, related_name="payments")
-    paid_amount = models.DecimalField(max_digits=10, decimal_places=2)
-    paid_on = models.DateTimeField(auto_now_add=True)
-    payment_method = models.CharField(max_length=100, default="cash")  # cash, card, etc.
-
-    def __str__(self):
-        return f"{self.paid_amount} on {self.paid_on.date()}"
+        return self.amount_remaining <= 0

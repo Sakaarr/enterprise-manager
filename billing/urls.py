@@ -1,13 +1,7 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from .views import BillViewSet, BillLineItemViewSet, PaymentViewSet,BillSummaryView
+from django.urls import path
+from .views import BillCalculationAPIView, InvoicePDFView
 
-router = DefaultRouter()
-router.register("bills", BillViewSet)
-router.register("bill-line-items", BillLineItemViewSet)
-router.register("payments", PaymentViewSet)
-
-urlpatterns = router.urls
-urlpatterns += [
-    path("summary/", BillSummaryView.as_view(), name="bill-summary"),
+urlpatterns = [
+    path('cars/bill/calculate/', BillCalculationAPIView.as_view(), name='bill-calculate'),
+    path('cars/billing/generatepdf', InvoicePDFView.as_view(),name='pdf')
 ]

@@ -1,26 +1,44 @@
 from rest_framework import serializers
-from .models import Bill, BillLineItem, Payment
+from decimal import Decimal
 
-class BillLineItemSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = BillLineItem
-        fields = ["id", "description", "quantity", "rate", "amount"]
 
-class PaymentSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Payment
-        fields = ["id", "bill", "paid_amount", "paid_on", "payment_method"]
+class BillCalculationSerializer(serializers.Serializer):
+    car_id = serializers.IntegerField(min_value=1, help_text="ID of the car to generate bill for")
+    discount = serializers.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        required=False, 
+        default=Decimal('0'),
+        min_value=Decimal('0'),
+        help_text="Discount amount to apply"
+    )
+    amount_paid = serializers.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        required=False, 
+        default=Decimal('0'),
+        min_value=Decimal('0'),
+        help_text="Amount already paid"
+    )
 
-class BillSerializer(serializers.ModelSerializer):
-    line_items = BillLineItemSerializer(many=True, read_only=True)
-    payments = PaymentSerializer(many=True, read_only=True)
-    amount_due = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
-    is_fully_paid = serializers.BooleanField(read_only=True)
+    def validate_discount(self, value):
+        if value < 0:
+            raise serializers.ValidationError("Discount cannot be negative.")
+        return value
 
-    class Meta:
-        model = Bill
-        fields = [
-            "id", "service_record", "discount", "tax_percent",
-            "total_amount", "amount_paid", "amount_due", "is_fully_paid",
-            "created_at", "line_items", "payments"
-        ]
+    def validate_amount_paid(self, value):
+        if value < 0:
+            raise serializers.ValidationError("Amount paid cannot be negative.")
+        return value
+
+
+class BillResponseSerializer(serializers.Serializer):
+    """Serializer for bill calculation response"""
+    bill_id = serializers.IntegerField(help_text="Generated bill ID")
+    total_service_cost = serializers.CharField(help_text="Total cost of services")
+    total_inventory_cost = serializers.CharField(help_text="Total cost of inventory/products")
+    total_amount = serializers.CharField(help_text="Total bill amount before discount and payment")
+    discount = serializers.CharField(help_text="Applied discount amount")
+    amount_paid = serializers.CharField(help_text="Amount already paid")
+    amount_remaining = serializers.CharField(help_text="Remaining amount to be paid")
+    created_at = serializers.CharField(help_text="Bill creation timestamp")
