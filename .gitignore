@@ -9,3 +9,7 @@ db.sqlite3
 .env
 /.env
 .env/
+
+.vs
+/.vs
+vs

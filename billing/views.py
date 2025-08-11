@@ -7,11 +7,12 @@ from .models import Bill, Car
 from decimal import Decimal
 from django.http import FileResponse
 from .utils_pdf import generate_invoice_pdf
-from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample, OpenApiParameter
 import logging
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from cars.models import CarServiceRecord, ServiceEntry, InventoryUsage
+from django.db.models import Q
 
 logger = logging.getLogger(__name__)
 
@@ -321,7 +322,7 @@ class BillUpdateAPIView(APIView):
 
 class BillListAPIView(APIView):
     """
-    API to list and retrieve bills with filtering options.
+    API to list and retrieve bills with filtering options including car ID search.
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -329,41 +330,70 @@ class BillListAPIView(APIView):
         operation_id="list_bills",
         responses={200: BillListSerializer(many=True)},
         parameters=[
-            {
-                "name": "car_id",
-                "in": "query",
-                "description": "Filter bills by car ID",
-                "required": False,
-                "schema": {"type": "integer"}
-            },
-            {
-                "name": "is_paid",
-                "in": "query", 
-                "description": "Filter by payment status (true/false)",
-                "required": False,
-                "schema": {"type": "boolean"}
-            },
-            {
-                "name": "page",
-                "in": "query",
-                "description": "Page number for pagination",
-                "required": False,
-                "schema": {"type": "integer", "default": 1}
-            }
+            OpenApiParameter(
+                name="car_id",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Filter bills by specific car ID",
+                required=False
+            ),
+            OpenApiParameter(
+                name="car_search",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Search bills by car plate number or car ID (partial match supported)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="is_paid",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                description="Filter by payment status (true for fully paid, false for unpaid/partially paid)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="page",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Page number for pagination (default: 1)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="page_size",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Number of items per page (default: 20, max: 100)",
+                required=False
+            )
         ],
         tags=["Billing"],
-        summary="List All Bills",
-        description="Retrieve a list of bills with optional filtering by car and payment status."
+        summary="List All Bills with Search and Filters",
+        description="""
+        Retrieve a paginated list of bills with comprehensive filtering options:
+        - Filter by specific car ID or search across car plate numbers
+        - Filter by payment status (paid/unpaid)
+        - Support for pagination with customizable page size
+        """
     )
     def get(self, request):
         try:
             queryset = Bill.objects.select_related('car', 'entered_by').all()
 
-            # Apply filters
+            # Apply car-specific filters
             car_id = request.query_params.get('car_id')
+            car_search = request.query_params.get('car_search')
+            
             if car_id:
+                # Filter by specific car ID
                 queryset = queryset.filter(car_id=car_id)
+            elif car_search:
+                # Search across car ID and plate number (partial match)
+                queryset = queryset.filter(
+                    Q(car_id__icontains=car_search) |
+                    Q(car__plate_number__icontains=car_search)
+                )
 
+            # Apply payment status filter
             is_paid = request.query_params.get('is_paid')
             if is_paid is not None:
                 if is_paid.lower() == 'true':
@@ -374,9 +404,9 @@ class BillListAPIView(APIView):
             # Order by creation date (newest first)
             queryset = queryset.order_by('-created_at')
 
-            # Basic pagination
+            # Enhanced pagination
             page = int(request.query_params.get('page', 1))
-            page_size = 20
+            page_size = min(int(request.query_params.get('page_size', 20)), 100)  # Max 100 items per page
             start = (page - 1) * page_size
             end = start + page_size
             
@@ -391,9 +421,15 @@ class BillListAPIView(APIView):
                 'page': page,
                 'page_size': page_size,
                 'has_next': end < total_count,
-                'has_previous': page > 1
+                'has_previous': page > 1,
+                'total_pages': (total_count + page_size - 1) // page_size
             }, status=status.HTTP_200_OK)
 
+        except ValueError as e:
+            return Response(
+                {"detail": "Invalid page or page_size parameter. Must be integers."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             logger.error(f"Error listing bills: {str(e)}")
             return Response(
@@ -404,7 +440,7 @@ class BillListAPIView(APIView):
 
 class BillDetailAPIView(APIView):
     """
-    API to retrieve detailed bill information.
+    API to retrieve detailed bill information with optional car search functionality.
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -414,16 +450,32 @@ class BillDetailAPIView(APIView):
             200: BillListSerializer,
             404: OpenApiResponse(description="Bill not found.")
         },
+        parameters=[
+            OpenApiParameter(
+                name="car_id",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Verify that the bill belongs to this specific car ID",
+                required=False
+            )
+        ],
         tags=["Billing"],
         summary="Get Bill Details",
-        description="Retrieve detailed information about a specific bill."
+        description="""
+        Retrieve detailed information about a specific bill.
+        Optionally verify that the bill belongs to a specific car by providing car_id parameter.
+        """
     )
     def get(self, request, bill_id):
         try:
-            bill = get_object_or_404(
-                Bill.objects.select_related('car', 'entered_by'), 
-                id=bill_id
-            )
+            queryset = Bill.objects.select_related('car', 'entered_by')
+            
+            # Apply car filter if provided
+            car_id = request.query_params.get('car_id')
+            if car_id:
+                queryset = queryset.filter(car_id=car_id)
+            
+            bill = get_object_or_404(queryset, id=bill_id)
             
             serializer = BillListSerializer(bill)
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -438,27 +490,47 @@ class BillDetailAPIView(APIView):
 
 class BillDeleteAPIView(APIView):
     """
-    API to delete bills (Admin only).
+    API to delete bills with car verification (Admin only).
     """
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
 
     @extend_schema(
         operation_id="delete_bill",
+        parameters=[
+            OpenApiParameter(
+                name="car_id",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Verify that the bill belongs to this specific car ID before deletion",
+                required=False
+            )
+        ],
         responses={
             204: OpenApiResponse(description="Bill deleted successfully."),
             403: OpenApiResponse(description="Admin access required."),
-            404: OpenApiResponse(description="Bill not found.")
+            404: OpenApiResponse(description="Bill not found or doesn't belong to specified car.")
         },
         tags=["Billing"],
-        summary="Delete Bill",
-        description="Delete a bill record. Only admin users can perform this action."
+        summary="Delete Bill with Car Verification",
+        description="""
+        Delete a bill record with optional car verification. 
+        If car_id is provided, the system will verify that the bill belongs to that car before deletion.
+        Only admin users can perform this action.
+        """
     )
     def delete(self, request, bill_id):
         try:
-            bill = get_object_or_404(Bill, id=bill_id)
+            queryset = Bill.objects.all()
+            
+            # Apply car filter if provided
+            car_id = request.query_params.get('car_id')
+            if car_id:
+                queryset = queryset.filter(car_id=car_id)
+            
+            bill = get_object_or_404(queryset, id=bill_id)
             
             # Log the deletion for audit purposes
-            logger.info(f"Bill {bill_id} for car {bill.car.plate_number} deleted by user {request.user.id}")
+            logger.info(f"Bill {bill_id} for car {bill.car.plate_number} (ID: {bill.car.id}) deleted by user {request.user.id}")
             
             bill.delete()
             
@@ -468,5 +540,182 @@ class BillDeleteAPIView(APIView):
             logger.error(f"Error deleting bill {bill_id}: {str(e)}")
             return Response(
                 {"detail": "An error occurred while deleting the bill."}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class BillSearchAPIView(APIView):
+    """
+    Dedicated API endpoint for advanced bill searching with multiple criteria.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        operation_id="search_bills",
+        responses={200: BillListSerializer(many=True)},
+        parameters=[
+            OpenApiParameter(
+                name="car_id",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Search bills by specific car ID",
+                required=False
+            ),
+            OpenApiParameter(
+                name="plate_number",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Search bills by car plate number (partial match supported)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="min_amount",
+                type=float,
+                location=OpenApiParameter.QUERY,
+                description="Filter bills with total amount greater than or equal to this value",
+                required=False
+            ),
+            OpenApiParameter(
+                name="max_amount",
+                type=float,
+                location=OpenApiParameter.QUERY,
+                description="Filter bills with total amount less than or equal to this value",
+                required=False
+            ),
+            OpenApiParameter(
+                name="payment_status",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Filter by payment status: 'paid', 'unpaid', or 'partial'",
+                required=False,
+                enum=['paid', 'unpaid', 'partial']
+            ),
+            OpenApiParameter(
+                name="date_from",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Filter bills created from this date (YYYY-MM-DD format)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="date_to",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Filter bills created up to this date (YYYY-MM-DD format)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="page",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Page number for pagination (default: 1)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="page_size",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Number of items per page (default: 20, max: 100)",
+                required=False
+            )
+        ],
+        tags=["Billing"],
+        summary="Advanced Bill Search",
+        description="""
+        Advanced search functionality for bills with multiple filter criteria:
+        - Search by car ID or plate number
+        - Filter by amount range
+        - Filter by payment status (paid/unpaid/partial)
+        - Filter by date range
+        - Support for pagination
+        """
+    )
+    def get(self, request):
+        try:
+            from datetime import datetime
+            
+            queryset = Bill.objects.select_related('car', 'entered_by').all()
+
+            # Car-based filters
+            car_id = request.query_params.get('car_id')
+            plate_number = request.query_params.get('plate_number')
+            
+            if car_id:
+                queryset = queryset.filter(car_id=car_id)
+            elif plate_number:
+                queryset = queryset.filter(car__plate_number__icontains=plate_number)
+
+            # Amount range filters
+            min_amount = request.query_params.get('min_amount')
+            max_amount = request.query_params.get('max_amount')
+            
+            if min_amount:
+                queryset = queryset.filter(total_amount__gte=Decimal(min_amount))
+            if max_amount:
+                queryset = queryset.filter(total_amount__lte=Decimal(max_amount))
+
+            # Payment status filter
+            payment_status = request.query_params.get('payment_status')
+            if payment_status:
+                if payment_status.lower() == 'paid':
+                    queryset = queryset.filter(amount_remaining__lte=0)
+                elif payment_status.lower() == 'unpaid':
+                    queryset = queryset.filter(amount_paid=0)
+                elif payment_status.lower() == 'partial':
+                    queryset = queryset.filter(amount_paid__gt=0, amount_remaining__gt=0)
+
+            # Date range filters
+            date_from = request.query_params.get('date_from')
+            date_to = request.query_params.get('date_to')
+            
+            if date_from:
+                date_from_obj = datetime.strptime(date_from, '%Y-%m-%d').date()
+                queryset = queryset.filter(created_at__date__gte=date_from_obj)
+            if date_to:
+                date_to_obj = datetime.strptime(date_to, '%Y-%m-%d').date()
+                queryset = queryset.filter(created_at__date__lte=date_to_obj)
+
+            # Order by creation date (newest first)
+            queryset = queryset.order_by('-created_at')
+
+            # Pagination
+            page = int(request.query_params.get('page', 1))
+            page_size = min(int(request.query_params.get('page_size', 20)), 100)
+            start = (page - 1) * page_size
+            end = start + page_size
+            
+            bills = queryset[start:end]
+            total_count = queryset.count()
+
+            serializer = BillListSerializer(bills, many=True)
+            
+            return Response({
+                'results': serializer.data,
+                'total_count': total_count,
+                'page': page,
+                'page_size': page_size,
+                'has_next': end < total_count,
+                'has_previous': page > 1,
+                'total_pages': (total_count + page_size - 1) // page_size,
+                'filters_applied': {
+                    'car_id': car_id,
+                    'plate_number': plate_number,
+                    'min_amount': min_amount,
+                    'max_amount': max_amount,
+                    'payment_status': payment_status,
+                    'date_from': date_from,
+                    'date_to': date_to
+                }
+            }, status=status.HTTP_200_OK)
+
+        except ValueError as e:
+            return Response(
+                {"detail": f"Invalid parameter format: {str(e)}"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Error in bill search: {str(e)}")
+            return Response(
+                {"detail": "An error occurred while searching bills."}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
