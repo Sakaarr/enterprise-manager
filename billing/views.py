@@ -2,7 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions, generics
 from .utils import calculate_bill_for_car
-from .serializers import BillCalculationSerializer, BillResponseSerializer, BillUpdateSerializer, BillListSerializer, PaidBillSerializer
+from .serializers import *
 from .models import Bill, PaidBill
 from decimal import Decimal
 from django.http import FileResponse
@@ -13,6 +13,14 @@ from django.shortcuts import get_object_or_404
 from django.db import transaction
 from cars.models import CarServiceRecord, ServiceEntry, InventoryUsage, Car
 from django.db.models import Q
+from django.db.models import Sum, Count, F,Avg, Max, Min    
+from django.db.models.functions import TruncDay
+from rest_framework.decorators import api_view
+from datetime import datetime, timedelta
+from django.utils import timezone
+from datetime import datetime, timedelta
+from decimal import Decimal
+from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncYear, Extract
 
 logger = logging.getLogger(__name__)
 
@@ -788,3 +796,1112 @@ class PaidBillListAPIView(generics.ListAPIView):
             queryset = queryset.filter(created_at__date__range=[start_date, end_date])
 
         return queryset
+    
+    
+    
+class RevenueAnalyticsAPIView(APIView):
+    """
+    API to get revenue analytics over time periods with grouping options.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        operation_id="get_revenue_analytics",
+        request=DateRangeAnalyticsSerializer,
+        responses={
+            200: RevenueAnalyticsResponseSerializer(many=True),
+            400: OpenApiResponse(description="Invalid date range or parameters"),
+        },
+        tags=["Analytics"],
+        summary="Revenue Analytics Over Time",
+        description="""
+        Get revenue analytics data grouped by time periods (day, week, month, year).
+        Includes total revenue, service revenue, inventory revenue, bill counts, and averages.
+        
+        Example usage:
+        - Daily revenue for last 30 days
+        - Monthly revenue for current year
+        - Weekly revenue trends
+        """
+    )
+    def post(self, request):
+        serializer = DateRangeAnalyticsSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            start_date = serializer.validated_data.get('start_date')
+            end_date = serializer.validated_data.get('end_date')
+            group_by = serializer.validated_data.get('group_by', 'day')
+
+            # Default date range if not provided
+            if not end_date:
+                end_date = timezone.now().date()
+            if not start_date:
+                start_date = end_date - timedelta(days=30)
+
+            # Choose truncation function based on group_by
+            trunc_func = {
+                'day': TruncDay,
+                'week': TruncWeek,
+                'month': TruncMonth,
+                'year': TruncYear
+            }[group_by]
+
+            # Query both Bill and PaidBill models
+            bills_data = Bill.objects.filter(
+                created_at__date__range=[start_date, end_date]
+            ).annotate(
+                period=trunc_func('created_at')
+            ).values('period').annotate(
+                total_revenue=Sum('total_amount'),
+                service_revenue=Sum('total_service_cost'),
+                inventory_revenue=Sum('total_inventory_cost'),
+                bills_count=Count('id'),
+                average_bill_amount=Avg('total_amount')
+            ).order_by('period')
+
+            paid_bills_data = PaidBill.objects.filter(
+                created_at__date__range=[start_date, end_date]
+            ).annotate(
+                period=trunc_func('created_at')
+            ).values('period').annotate(
+                total_revenue=Sum('total_amount'),
+                service_revenue=Sum('total_service_cost'),
+                inventory_revenue=Sum('total_inventory_cost'),
+                bills_count=Count('id'),
+                average_bill_amount=Avg('total_amount')
+            ).order_by('period')
+
+            # Combine and aggregate data from both sources
+            combined_data = {}
+            
+            for item in bills_data:
+                period_key = item['period'].strftime('%Y-%m-%d' if group_by == 'day' else '%Y-%m-%d')
+                combined_data[period_key] = {
+                    'period': period_key,
+                    'total_revenue': item['total_revenue'] or Decimal('0'),
+                    'service_revenue': item['service_revenue'] or Decimal('0'),
+                    'inventory_revenue': item['inventory_revenue'] or Decimal('0'),
+                    'bills_count': item['bills_count'],
+                    'average_bill_amount': item['average_bill_amount'] or Decimal('0')
+                }
+
+            for item in paid_bills_data:
+                period_key = item['period'].strftime('%Y-%m-%d' if group_by == 'day' else '%Y-%m-%d')
+                if period_key in combined_data:
+                    combined_data[period_key]['total_revenue'] += item['total_revenue'] or Decimal('0')
+                    combined_data[period_key]['service_revenue'] += item['service_revenue'] or Decimal('0')
+                    combined_data[period_key]['inventory_revenue'] += item['inventory_revenue'] or Decimal('0')
+                    combined_data[period_key]['bills_count'] += item['bills_count']
+                    # Recalculate average
+                    total_bills = combined_data[period_key]['bills_count']
+                    if total_bills > 0:
+                        combined_data[period_key]['average_bill_amount'] = combined_data[period_key]['total_revenue'] / total_bills
+                else:
+                    combined_data[period_key] = {
+                        'period': period_key,
+                        'total_revenue': item['total_revenue'] or Decimal('0'),
+                        'service_revenue': item['service_revenue'] or Decimal('0'),
+                        'inventory_revenue': item['inventory_revenue'] or Decimal('0'),
+                        'bills_count': item['bills_count'],
+                        'average_bill_amount': item['average_bill_amount'] or Decimal('0')
+                    }
+
+            # Convert to list and sort
+            result_data = sorted(combined_data.values(), key=lambda x: x['period'])
+            
+            return Response(result_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error in revenue analytics: {str(e)}")
+            return Response(
+                {"detail": "An error occurred while generating revenue analytics."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class PaymentAnalyticsAPIView(APIView):
+    """
+    API to get payment status analytics over time periods.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        operation_id="get_payment_analytics",
+        request=DateRangeAnalyticsSerializer,
+        responses={
+            200: PaymentAnalyticsResponseSerializer(many=True),
+            400: OpenApiResponse(description="Invalid date range or parameters"),
+        },
+        tags=["Analytics"],
+        summary="Payment Status Analytics",
+        description="""
+        Get payment status analytics including total payments, payment distributions,
+        and outstanding amounts grouped by time periods.
+        """
+    )
+    def post(self, request):
+        serializer = DateRangeAnalyticsSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            start_date = serializer.validated_data.get('start_date')
+            end_date = serializer.validated_data.get('end_date')
+            group_by = serializer.validated_data.get('group_by', 'day')
+
+            if not end_date:
+                end_date = timezone.now().date()
+            if not start_date:
+                start_date = end_date - timedelta(days=30)
+
+            trunc_func = {
+                'day': TruncDay,
+                'week': TruncWeek,
+                'month': TruncMonth,
+                'year': TruncYear
+            }[group_by]
+
+            # Get payment analytics for active bills
+            bills_data = Bill.objects.filter(
+                created_at__date__range=[start_date, end_date]
+            ).annotate(
+                period=trunc_func('created_at')
+            ).values('period').annotate(
+                total_payments=Sum('amount_paid'),
+                fully_paid_bills=Count('id', filter=Q(amount_remaining__lte=0)),
+                partially_paid_bills=Count('id', filter=Q(amount_paid__gt=0, amount_remaining__gt=0)),
+                unpaid_bills=Count('id', filter=Q(amount_paid=0)),
+                outstanding_amount=Sum('amount_remaining')
+            ).order_by('period')
+
+            # Get payment data for paid bills (all are fully paid)
+            paid_bills_data = PaidBill.objects.filter(
+                created_at__date__range=[start_date, end_date]
+            ).annotate(
+                period=trunc_func('created_at')
+            ).values('period').annotate(
+                total_payments=Sum('amount_paid'),
+                fully_paid_bills=Count('id'),
+                partially_paid_bills=Count('id', filter=Q(pk__isnull=True)),  # Always 0 for paid bills
+                unpaid_bills=Count('id', filter=Q(pk__isnull=True)),  # Always 0 for paid bills
+                outstanding_amount=Sum('amount_paid', filter=Q(pk__isnull=True))  # Always 0 for paid bills
+            ).order_by('period')
+
+            # Combine data
+            combined_data = {}
+            
+            for item in bills_data:
+                period_key = item['period'].strftime('%Y-%m-%d' if group_by == 'day' else '%Y-%m-%d')
+                combined_data[period_key] = {
+                    'period': period_key,
+                    'total_payments': item['total_payments'] or Decimal('0'),
+                    'fully_paid_bills': item['fully_paid_bills'],
+                    'partially_paid_bills': item['partially_paid_bills'],
+                    'unpaid_bills': item['unpaid_bills'],
+                    'outstanding_amount': item['outstanding_amount'] or Decimal('0')
+                }
+
+            for item in paid_bills_data:
+                period_key = item['period'].strftime('%Y-%m-%d' if group_by == 'day' else '%Y-%m-%d')
+                if period_key in combined_data:
+                    combined_data[period_key]['total_payments'] += item['total_payments'] or Decimal('0')
+                    combined_data[period_key]['fully_paid_bills'] += item['fully_paid_bills']
+                else:
+                    combined_data[period_key] = {
+                        'period': period_key,
+                        'total_payments': item['total_payments'] or Decimal('0'),
+                        'fully_paid_bills': item['fully_paid_bills'],
+                        'partially_paid_bills': 0,
+                        'unpaid_bills': 0,
+                        'outstanding_amount': Decimal('0')
+                    }
+
+            result_data = sorted(combined_data.values(), key=lambda x: x['period'])
+            
+            return Response(result_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error in payment analytics: {str(e)}")
+            return Response(
+                {"detail": "An error occurred while generating payment analytics."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class TopCustomersAPIView(APIView):
+    """
+    API to get top customers by revenue, bill count, or other metrics.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        operation_id="get_top_customers",
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Number of top customers to return (default: 10, max: 50)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="order_by",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Order by: 'revenue', 'bills_count', 'avg_bill' (default: revenue)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="start_date",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Start date for analysis (YYYY-MM-DD)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="end_date",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="End date for analysis (YYYY-MM-DD)",
+                required=False
+            )
+        ],
+        responses={
+            200: TopCustomersResponseSerializer(many=True),
+            400: OpenApiResponse(description="Invalid parameters"),
+        },
+        tags=["Analytics"],
+        summary="Top Customers Analytics",
+        description="""
+        Get top customers ranked by various metrics such as total revenue,
+        number of bills, or average bill amount within a specified date range.
+        """
+    )
+    def get(self, request):
+        try:
+            limit = min(int(request.query_params.get('limit', 10)), 50)
+            order_by = request.query_params.get('order_by', 'revenue')
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+
+            # Parse dates if provided
+            date_filter = {}
+            if start_date:
+                date_filter['created_at__date__gte'] = datetime.strptime(start_date, '%Y-%m-%d').date()
+            if end_date:
+                date_filter['created_at__date__lte'] = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+            # Query active bills
+            bills_by_car = Bill.objects.filter(**date_filter).values(
+                'car_id', 'car__plate_number'
+            ).annotate(
+                total_bills=Count('id'),
+                total_revenue=Sum('total_amount'),
+                average_bill_amount=Avg('total_amount'),
+                last_service_date=Max('created_at')
+            )
+
+            # Query paid bills
+            paid_bills_by_car = PaidBill.objects.filter(**date_filter).values(
+                'car_id', 'car__plate_number'
+            ).annotate(
+                total_bills=Count('id'),
+                total_revenue=Sum('total_amount'),
+                average_bill_amount=Avg('total_amount'),
+                last_service_date=Max('created_at')
+            )
+
+            # Combine data from both sources
+            combined_data = {}
+            
+            for item in bills_by_car:
+                car_id = item['car_id']
+                combined_data[car_id] = {
+                    'car_id': car_id,
+                    'car_plate_number': item['car__plate_number'],
+                    'total_bills': item['total_bills'],
+                    'total_revenue': item['total_revenue'] or Decimal('0'),
+                    'average_bill_amount': item['average_bill_amount'] or Decimal('0'),
+                    'last_service_date': item['last_service_date']
+                }
+
+            for item in paid_bills_by_car:
+                car_id = item['car_id']
+                if car_id in combined_data:
+                    combined_data[car_id]['total_bills'] += item['total_bills']
+                    combined_data[car_id]['total_revenue'] += item['total_revenue'] or Decimal('0')
+                    # Recalculate average
+                    if combined_data[car_id]['total_bills'] > 0:
+                        combined_data[car_id]['average_bill_amount'] = combined_data[car_id]['total_revenue'] / combined_data[car_id]['total_bills']
+                    # Update last service date if newer
+                    if item['last_service_date'] and (not combined_data[car_id]['last_service_date'] or item['last_service_date'] > combined_data[car_id]['last_service_date']):
+                        combined_data[car_id]['last_service_date'] = item['last_service_date']
+                else:
+                    combined_data[car_id] = {
+                        'car_id': car_id,
+                        'car_plate_number': item['car__plate_number'],
+                        'total_bills': item['total_bills'],
+                        'total_revenue': item['total_revenue'] or Decimal('0'),
+                        'average_bill_amount': item['average_bill_amount'] or Decimal('0'),
+                        'last_service_date': item['last_service_date']
+                    }
+
+            # Sort based on order_by parameter
+            if order_by == 'bills_count':
+                sorted_data = sorted(combined_data.values(), key=lambda x: x['total_bills'], reverse=True)
+            elif order_by == 'avg_bill':
+                sorted_data = sorted(combined_data.values(), key=lambda x: x['average_bill_amount'], reverse=True)
+            else:  # default to revenue
+                sorted_data = sorted(combined_data.values(), key=lambda x: x['total_revenue'], reverse=True)
+
+            result_data = sorted_data[:limit]
+            
+            return Response(result_data, status=status.HTTP_200_OK)
+
+        except ValueError as e:
+            return Response(
+                {"detail": f"Invalid parameter: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Error in top customers analytics: {str(e)}")
+            return Response(
+                {"detail": "An error occurred while generating top customers analytics."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class DashboardSummaryAPIView(APIView):
+    """
+    API to get dashboard summary with key metrics for today and current month.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        operation_id="get_dashboard_summary",
+        responses={
+            200: DashboardSummaryResponseSerializer,
+        },
+        tags=["Analytics"],
+        summary="Dashboard Summary Analytics",
+        description="""
+        Get key metrics for dashboard display including today's and current month's
+        revenue, bill counts, pending payments, and top services.
+        """
+    )
+    def get(self, request):
+        try:
+            today = timezone.now().date()
+            start_of_month = today.replace(day=1)
+            
+            # Today's metrics from active bills
+            today_bills = Bill.objects.filter(created_at__date=today)
+            today_revenue = today_bills.aggregate(Sum('total_amount'))['total_amount__sum'] or Decimal('0')
+            today_bills_count = today_bills.count()
+            today_avg_bill = today_bills.aggregate(Avg('total_amount'))['total_amount__avg'] or Decimal('0')
+
+            # Today's metrics from paid bills
+            today_paid_bills = PaidBill.objects.filter(created_at__date=today)
+            today_revenue += today_paid_bills.aggregate(Sum('total_amount'))['total_amount__sum'] or Decimal('0')
+            today_bills_count += today_paid_bills.count()
+            
+            # Recalculate today's average
+            if today_bills_count > 0:
+                today_avg_bill = today_revenue / today_bills_count
+
+            # Current month metrics
+            month_bills = Bill.objects.filter(created_at__date__gte=start_of_month)
+            month_revenue = month_bills.aggregate(Sum('total_amount'))['total_amount__sum'] or Decimal('0')
+            month_bills_count = month_bills.count()
+
+            month_paid_bills = PaidBill.objects.filter(created_at__date__gte=start_of_month)
+            month_revenue += month_paid_bills.aggregate(Sum('total_amount'))['total_amount__sum'] or Decimal('0')
+            month_bills_count += month_paid_bills.count()
+
+            # Pending payments (only from active bills)
+            pending_data = Bill.objects.filter(amount_remaining__gt=0).aggregate(
+                total_pending=Sum('amount_remaining'),
+                pending_count=Count('id')
+            )
+
+            # Top service today (simplified - would need service data integration)
+            # This is a placeholder - you would need to integrate with your service tracking
+            top_service_today = None
+            try:
+                # Get most common service from today's service records
+                today_services = ServiceEntry.objects.filter(
+                    service_record__carservicerecord__created_at__date=today
+                ).values('service__name').annotate(
+                    count=Count('id')
+                ).order_by('-count').first()
+                
+                if today_services:
+                    top_service_today = today_services['service__name']
+            except Exception:
+                pass  # Gracefully handle if service data is not available
+
+            summary_data = {
+                'total_revenue_today': today_revenue,
+                'total_revenue_this_month': month_revenue,
+                'total_bills_today': today_bills_count,
+                'total_bills_this_month': month_bills_count,
+                'pending_payments': pending_data['total_pending'] or Decimal('0'),
+                'pending_bills_count': pending_data['pending_count'] or 0,
+                'average_bill_amount_today': today_avg_bill,
+                'top_service_today': top_service_today
+            }
+
+            return Response(summary_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error in dashboard summary: {str(e)}")
+            return Response(
+                {"detail": "An error occurred while generating dashboard summary."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+            
+
+class ServiceAnalyticsAPIView(APIView):
+    """
+    API to get service analytics including most popular services and their revenue.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        operation_id="get_service_analytics",
+        parameters=[
+            OpenApiParameter(
+                name="start_date",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Start date for analysis (YYYY-MM-DD)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="end_date",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="End date for analysis (YYYY-MM-DD)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Number of top services to return (default: 10, max: 50)",
+                required=False
+            )
+        ],
+        responses={
+            200: ServiceAnalyticsResponseSerializer(many=True),
+            400: OpenApiResponse(description="Invalid parameters"),
+        },
+        tags=["Analytics"],
+        summary="Service Analytics",
+        description="""
+        Get analytics for services including usage count, total revenue, and average prices
+        within a specified date range.
+        """
+    )
+    def get(self, request):
+        try:
+            from cars.models import ServiceEntry, Service
+            
+            limit = min(int(request.query_params.get('limit', 10)), 50)
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+
+            # Parse dates if provided
+            date_filter = {}
+            if start_date:
+                date_filter['service_record__carservicerecord__created_at__date__gte'] = datetime.strptime(start_date, '%Y-%m-%d').date()
+            if end_date:
+                date_filter['service_record__carservicerecord__created_at__date__lte'] = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+            # Get service analytics from service entries
+            service_analytics = ServiceEntry.objects.filter(
+                **date_filter
+            ).values(
+                'service__name'
+            ).annotate(
+                service_count=Count('id'),
+                total_revenue=Sum('service__standard_rate'),
+                average_price=Avg('service__standard_rate')
+            ).order_by('-service_count')[:limit]
+
+            # Format the response
+            result_data = []
+            for item in service_analytics:
+                result_data.append({
+                    'service_name': item['service__name'],
+                    'service_count': item['service_count'],
+                    'total_revenue': item['total_revenue'] or Decimal('0'),
+                    'average_price': item['average_price'] or Decimal('0')
+                })
+
+            return Response(result_data, status=status.HTTP_200_OK)
+
+        except ValueError as e:
+            return Response(
+                {"detail": f"Invalid parameter: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Error in service analytics: {str(e)}")
+            return Response(
+                {"detail": "An error occurred while generating service analytics."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class InventoryAnalyticsAPIView(APIView):
+    """
+    API to get inventory/product usage analytics.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        operation_id="get_inventory_analytics",
+        parameters=[
+            OpenApiParameter(
+                name="start_date",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Start date for analysis (YYYY-MM-DD)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="end_date",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="End date for analysis (YYYY-MM-DD)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Number of top products to return (default: 10, max: 50)",
+                required=False
+            )
+        ],
+        responses={
+            200: InventoryAnalyticsResponseSerializer(many=True),
+            400: OpenApiResponse(description="Invalid parameters"),
+        },
+        tags=["Analytics"],
+        summary="Inventory Usage Analytics",
+        description="""
+        Get analytics for inventory/product usage including quantities used,
+        total revenue, and average prices within a specified date range.
+        """
+    )
+    def get(self, request):
+        try:
+            from cars.models import InventoryUsage
+            
+            limit = min(int(request.query_params.get('limit', 10)), 50)
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+
+            # Parse dates if provided
+            date_filter = {}
+            if start_date:
+                date_filter['service_record__carservicerecord__created_at__date__gte'] = datetime.strptime(start_date, '%Y-%m-%d').date()
+            if end_date:
+                date_filter['service_record__carservicerecord__created_at__date__lte'] = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+            # Get inventory analytics from inventory usage
+            inventory_analytics = InventoryUsage.objects.filter(
+                **date_filter
+            ).values(
+                'product__name'
+            ).annotate(
+                quantity_used=Sum('quantity_used'),
+                total_revenue=Sum('product__standard_rate'),
+                average_price=Avg('product__standard_rate')
+            ).order_by('-quantity_used')[:limit]
+
+            # Format the response
+            result_data = []
+            for item in inventory_analytics:
+                result_data.append({
+                    'product_name': item['product__name'],
+                    'quantity_used': item['quantity_used'] or 0,
+                    'total_revenue': item['total_revenue'] or Decimal('0'),
+                    'average_price': item['average_price'] or Decimal('0')
+                })
+
+            return Response(result_data, status=status.HTTP_200_OK)
+
+        except ValueError as e:
+            return Response(
+                {"detail": f"Invalid parameter: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Error in inventory analytics: {str(e)}")
+            return Response(
+                {"detail": "An error occurred while generating inventory analytics."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class MonthlyComparisonAPIView(APIView):
+    """
+    API to get monthly comparison analytics between current and previous month.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        operation_id="get_monthly_comparison",
+        responses={
+            200: MonthlyComparisonResponseSerializer,
+        },
+        tags=["Analytics"],
+        summary="Monthly Comparison Analytics",
+        description="""
+        Compare current month's performance with the previous month including
+        revenue, bill counts, and growth percentages.
+        """
+    )
+    def get(self, request):
+        try:
+            today = timezone.now().date()
+            
+            # Current month dates
+            current_month_start = today.replace(day=1)
+            if today.month == 12:
+                next_month_start = today.replace(year=today.year + 1, month=1, day=1)
+            else:
+                next_month_start = today.replace(month=today.month + 1, day=1)
+
+            # Previous month dates
+            if today.month == 1:
+                prev_month_start = today.replace(year=today.year - 1, month=12, day=1)
+                prev_month_end = today.replace(day=1) - timedelta(days=1)
+            else:
+                prev_month_start = today.replace(month=today.month - 1, day=1)
+                prev_month_end = current_month_start - timedelta(days=1)
+
+            # Current month analytics (from both Bill and PaidBill)
+            current_bills = Bill.objects.filter(
+                created_at__date__gte=current_month_start,
+                created_at__date__lt=next_month_start
+            ).aggregate(
+                revenue=Sum('total_amount'),
+                count=Count('id'),
+                avg_amount=Avg('total_amount')
+            )
+
+            current_paid_bills = PaidBill.objects.filter(
+                created_at__date__gte=current_month_start,
+                created_at__date__lt=next_month_start
+            ).aggregate(
+                revenue=Sum('total_amount'),
+                count=Count('id'),
+                avg_amount=Avg('total_amount')
+            )
+
+            # Previous month analytics
+            prev_bills = Bill.objects.filter(
+                created_at__date__gte=prev_month_start,
+                created_at__date__lte=prev_month_end
+            ).aggregate(
+                revenue=Sum('total_amount'),
+                count=Count('id'),
+                avg_amount=Avg('total_amount')
+            )
+
+            prev_paid_bills = PaidBill.objects.filter(
+                created_at__date__gte=prev_month_start,
+                created_at__date__lte=prev_month_end
+            ).aggregate(
+                revenue=Sum('total_amount'),
+                count=Count('id'),
+                avg_amount=Avg('total_amount')
+            )
+
+            # Combine current month data
+            current_total_revenue = (current_bills['revenue'] or Decimal('0')) + (current_paid_bills['revenue'] or Decimal('0'))
+            current_total_count = (current_bills['count'] or 0) + (current_paid_bills['count'] or 0)
+            current_avg = current_total_revenue / current_total_count if current_total_count > 0 else Decimal('0')
+
+            # Combine previous month data
+            prev_total_revenue = (prev_bills['revenue'] or Decimal('0')) + (prev_paid_bills['revenue'] or Decimal('0'))
+            prev_total_count = (prev_bills['count'] or 0) + (prev_paid_bills['count'] or 0)
+            prev_avg = prev_total_revenue / prev_total_count if prev_total_count > 0 else Decimal('0')
+
+            # Calculate growth percentages
+            def calculate_growth(current, previous):
+                if previous == 0:
+                    return Decimal('100') if current > 0 else Decimal('0')
+                return ((current - previous) / previous) * 100
+
+            revenue_growth = calculate_growth(current_total_revenue, prev_total_revenue)
+            count_growth = calculate_growth(Decimal(current_total_count), Decimal(prev_total_count))
+            avg_growth = calculate_growth(current_avg, prev_avg)
+
+            result_data = {
+                'current_month': {
+                    'revenue': current_total_revenue,
+                    'bills_count': Decimal(current_total_count),
+                    'average_bill_amount': current_avg
+                },
+                'previous_month': {
+                    'revenue': prev_total_revenue,
+                    'bills_count': Decimal(prev_total_count),
+                    'average_bill_amount': prev_avg
+                },
+                'growth_percentage': {
+                    'revenue_growth': revenue_growth,
+                    'bills_count_growth': count_growth,
+                    'average_bill_growth': avg_growth
+                }
+            }
+
+            return Response(result_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error in monthly comparison: {str(e)}")
+            return Response(
+                {"detail": "An error occurred while generating monthly comparison."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class PaymentStatusSummaryAPIView(APIView):
+    """
+    API to get payment status summary across all bills.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        operation_id="get_payment_status_summary",
+        parameters=[
+            OpenApiParameter(
+                name="start_date",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Start date for analysis (YYYY-MM-DD)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="end_date",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="End date for analysis (YYYY-MM-DD)",
+                required=False
+            )
+        ],
+        responses={
+            200: PaymentStatusSummarySerializer,
+        },
+        tags=["Analytics"],
+        summary="Payment Status Summary",
+        description="""
+        Get overall payment status summary including counts and percentages
+        of paid, partially paid, and unpaid bills.
+        """
+    )
+    def get(self, request):
+        try:
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+
+            # Parse dates if provided
+            date_filter = {}
+            if start_date:
+                date_filter['created_at__date__gte'] = datetime.strptime(start_date, '%Y-%m-%d').date()
+            if end_date:
+                date_filter['created_at__date__lte'] = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+            # Get payment status from active bills
+            bills_summary = Bill.objects.filter(**date_filter).aggregate(
+                total_bills=Count('id'),
+                fully_paid=Count('id', filter=Q(amount_remaining__lte=0)),
+                partially_paid=Count('id', filter=Q(amount_paid__gt=0, amount_remaining__gt=0)),
+                unpaid=Count('id', filter=Q(amount_paid=0)),
+                total_outstanding=Sum('amount_remaining')
+            )
+
+            # Get count of paid bills (all are fully paid by definition)
+            paid_bills_count = PaidBill.objects.filter(**date_filter).count()
+
+            # Combine totals
+            total_bills = (bills_summary['total_bills'] or 0) + paid_bills_count
+            fully_paid_total = (bills_summary['fully_paid'] or 0) + paid_bills_count
+            partially_paid_total = bills_summary['partially_paid'] or 0
+            unpaid_total = bills_summary['unpaid'] or 0
+            total_outstanding = bills_summary['total_outstanding'] or Decimal('0')
+
+            # Calculate percentages
+            fully_paid_percentage = (fully_paid_total / total_bills * 100) if total_bills > 0 else Decimal('0')
+
+            result_data = {
+                'total_bills': total_bills,
+                'fully_paid': fully_paid_total,
+                'partially_paid': partially_paid_total,
+                'unpaid': unpaid_total,
+                'fully_paid_percentage': fully_paid_percentage,
+                'total_outstanding': total_outstanding
+            }
+
+            return Response(result_data, status=status.HTTP_200_OK)
+
+        except ValueError as e:
+            return Response(
+                {"detail": f"Invalid parameter: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Error in payment status summary: {str(e)}")
+            return Response(
+                {"detail": "An error occurred while generating payment status summary."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class PeakHoursAnalyticsAPIView(APIView):
+    """
+    API to get peak hours analytics showing busiest times of day.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        operation_id="get_peak_hours_analytics",
+        parameters=[
+            OpenApiParameter(
+                name="start_date",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Start date for analysis (YYYY-MM-DD)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="end_date",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="End date for analysis (YYYY-MM-DD)",
+                required=False
+            )
+        ],
+        responses={
+            200: PeakHoursAnalyticsSerializer(many=True),
+        },
+        tags=["Analytics"],
+        summary="Peak Hours Analytics",
+        description="""
+        Analyze business activity by hours of the day to identify peak hours
+        based on bill creation times and revenue.
+        """
+    )
+    def get(self, request):
+        try:
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+
+            # Parse dates if provided
+            date_filter = {}
+            if start_date:
+                date_filter['created_at__date__gte'] = datetime.strptime(start_date, '%Y-%m-%d').date()
+            if end_date:
+                date_filter['created_at__date__lte'] = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+            # Get hourly analytics from bills
+            bills_hourly = Bill.objects.filter(**date_filter).annotate(
+                hour=Extract('created_at', 'hour')
+            ).values('hour').annotate(
+                bills_count=Count('id'),
+                total_revenue=Sum('total_amount')
+            ).order_by('hour')
+
+            # Get hourly analytics from paid bills
+            paid_bills_hourly = PaidBill.objects.filter(**date_filter).annotate(
+                hour=Extract('created_at', 'hour')
+            ).values('hour').annotate(
+                bills_count=Count('id'),
+                total_revenue=Sum('total_amount')
+            ).order_by('hour')
+
+            # Combine data by hour
+            hourly_data = {}
+            for i in range(24):
+                hourly_data[i] = {
+                    'hour': i,
+                    'bills_count': 0,
+                    'total_revenue': Decimal('0')
+                }
+
+            # Add bills data
+            for item in bills_hourly:
+                hour = item['hour']
+                hourly_data[hour]['bills_count'] += item['bills_count']
+                hourly_data[hour]['total_revenue'] += item['total_revenue'] or Decimal('0')
+
+            # Add paid bills data
+            for item in paid_bills_hourly:
+                hour = item['hour']
+                hourly_data[hour]['bills_count'] += item['bills_count']
+                hourly_data[hour]['total_revenue'] += item['total_revenue'] or Decimal('0')
+
+            # Convert to list and sort by bills_count (descending)
+            result_data = sorted(hourly_data.values(), key=lambda x: x['bills_count'], reverse=True)
+
+            return Response(result_data, status=status.HTTP_200_OK)
+
+        except ValueError as e:
+            return Response(
+                {"detail": f"Invalid parameter: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Error in peak hours analytics: {str(e)}")
+            return Response(
+                {"detail": "An error occurred while generating peak hours analytics."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class CustomerRetentionAPIView(APIView):
+    """
+    API to get customer retention analytics over time periods.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        operation_id="get_customer_retention_analytics",
+        request=DateRangeAnalyticsSerializer,
+        responses={
+            200: CustomerRetentionSerializer(many=True),
+            400: OpenApiResponse(description="Invalid date range or parameters"),
+        },
+        tags=["Analytics"],
+        summary="Customer Retention Analytics",
+        description="""
+        Analyze customer retention by tracking new vs returning customers
+        over specified time periods.
+        """
+    )
+    def post(self, request):
+        serializer = DateRangeAnalyticsSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            start_date = serializer.validated_data.get('start_date')
+            end_date = serializer.validated_data.get('end_date')
+            group_by = serializer.validated_data.get('group_by', 'month')
+
+            # Default date range if not provided
+            if not end_date:
+                end_date = timezone.now().date()
+            if not start_date:
+                start_date = end_date - timedelta(days=90)
+
+            # Choose truncation function based on group_by
+            trunc_func = {
+                'day': TruncDay,
+                'week': TruncWeek,
+                'month': TruncMonth,
+                'year': TruncYear
+            }[group_by]
+
+            # Get all unique cars that had bills in the date range
+            cars_in_period = set()
+            
+            # From active bills
+            bills_cars = Bill.objects.filter(
+                created_at__date__range=[start_date, end_date]
+            ).values_list('car_id', flat=True).distinct()
+            cars_in_period.update(bills_cars)
+
+            # From paid bills
+            paid_bills_cars = PaidBill.objects.filter(
+                created_at__date__range=[start_date, end_date]
+            ).values_list('car_id', flat=True).distinct()
+            cars_in_period.update(paid_bills_cars)
+
+            # For each period, determine new vs returning customers
+            periods_data = {}
+
+            # Get first bill date for each car (to determine if new or returning)
+            car_first_bill_dates = {}
+            
+            # Check first bill dates from Bill model
+            first_bills = Bill.objects.values('car_id').annotate(
+                first_bill_date=Min('created_at')
+            )
+            for item in first_bills:
+                car_first_bill_dates[item['car_id']] = item['first_bill_date'].date()
+
+            # Check first bill dates from PaidBill model
+            first_paid_bills = PaidBill.objects.values('car_id').annotate(
+                first_bill_date=Min('created_at')
+            )
+            for item in first_paid_bills:
+                car_id = item['car_id']
+                first_date = item['first_bill_date'].date()
+                if car_id not in car_first_bill_dates or first_date < car_first_bill_dates[car_id]:
+                    car_first_bill_dates[car_id] = first_date
+
+            # Analyze by periods
+            bills_by_period = Bill.objects.filter(
+                created_at__date__range=[start_date, end_date]
+            ).annotate(
+                period=trunc_func('created_at')
+            ).values('period', 'car_id', 'created_at').order_by('period')
+
+            paid_bills_by_period = PaidBill.objects.filter(
+                created_at__date__range=[start_date, end_date]
+            ).annotate(
+                period=trunc_func('created_at')
+            ).values('period', 'car_id', 'created_at').order_by('period')
+
+            # Combine and analyze
+            all_bills = list(bills_by_period) + list(paid_bills_by_period)
+            
+            for bill in all_bills:
+                period_key = bill['period'].strftime('%Y-%m-%d')
+                car_id = bill['car_id']
+                bill_date = bill['created_at'].date()
+                
+                if period_key not in periods_data:
+                    periods_data[period_key] = {
+                        'period': period_key,
+                        'new_customers': set(),
+                        'returning_customers': set()
+                    }
+
+                # Determine if new or returning customer
+                first_bill_date = car_first_bill_dates.get(car_id)
+                if first_bill_date and first_bill_date >= start_date and first_bill_date == bill_date:
+                    periods_data[period_key]['new_customers'].add(car_id)
+                else:
+                    periods_data[period_key]['returning_customers'].add(car_id)
+
+            # Calculate retention rates and format response
+            result_data = []
+            for period_key, data in sorted(periods_data.items()):
+                new_count = len(data['new_customers'])
+                returning_count = len(data['returning_customers'])
+                total_customers = new_count + returning_count
+                
+                retention_rate = (returning_count / total_customers * 100) if total_customers > 0 else Decimal('0')
+                
+                result_data.append({
+                    'period': period_key,
+                    'new_customers': new_count,
+                    'returning_customers': returning_count,
+                    'retention_rate': retention_rate
+                })
+
+            return Response(result_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error in customer retention analytics: {str(e)}")
+            return Response(
+                {"detail": "An error occurred while generating customer retention analytics."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

@@ -7,7 +7,17 @@ from .views import (
     BillUpdateAPIView, 
     BillDeleteAPIView,
     BillSearchAPIView,
-    PaidBillListAPIView
+    PaidBillListAPIView,
+    RevenueAnalyticsAPIView,
+    PaymentAnalyticsAPIView,
+    TopCustomersAPIView,
+    DashboardSummaryAPIView,
+    ServiceAnalyticsAPIView,
+    InventoryAnalyticsAPIView,
+    MonthlyComparisonAPIView,
+    PaymentStatusSummaryAPIView,
+    PeakHoursAnalyticsAPIView,
+    CustomerRetentionAPIView
 )
 
 urlpatterns = [
@@ -22,4 +32,28 @@ urlpatterns = [
     path('billing/bills/<int:bill_id>/update/', BillUpdateAPIView.as_view(), name='bill-update'),
     path('billing/bills/<int:bill_id>/delete/', BillDeleteAPIView.as_view(), name='bill-delete'),
     path('paid-bills/', PaidBillListAPIView.as_view(), name='paid-bill-list'),
+    # Revenue Analytics
+    path('revenue/', RevenueAnalyticsAPIView.as_view(), name='revenue-analytics'),
+    
+    # Payment Analytics
+    path('payments/', PaymentAnalyticsAPIView.as_view(), name='payment-analytics'),
+    
+    # Customer Analytics
+    path('top-customers/', TopCustomersAPIView.as_view(), name='top-customers'),
+    
+    
+    # Time-based Analytics
+    
+    # Dashboard
+    path('dashboard-summary/', DashboardSummaryAPIView.as_view(), name='dashboard-summary'),
+    path('analytics/services/', ServiceAnalyticsAPIView.as_view(), name='service-analytics'),
+    path('analytics/inventory/', InventoryAnalyticsAPIView.as_view(), name='inventory-analytics'),
+    
+    # New Analytics URLs - Comparisons & Status
+    path('analytics/monthly-comparison/', MonthlyComparisonAPIView.as_view(), name='monthly-comparison'),
+    path('analytics/payment-status/', PaymentStatusSummaryAPIView.as_view(), name='payment-status-summary'),
+    
+    # New Analytics URLs - Behavioral Analytics
+    path('analytics/peak-hours/', PeakHoursAnalyticsAPIView.as_view(), name='peak-hours-analytics'),
+    path('analytics/customer-retention/', CustomerRetentionAPIView.as_view(), name='customer-retention'),
 ]

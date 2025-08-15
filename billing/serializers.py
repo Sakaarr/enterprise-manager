@@ -134,3 +134,215 @@ class PaidBillSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaidBill
         fields = '__all__'
+        
+        
+        
+class DateRangeAnalyticsSerializer(serializers.Serializer):
+    """Base serializer for date range analytics requests"""
+    start_date = serializers.DateField(
+        help_text="Start date for analytics period (YYYY-MM-DD format)",
+        required=False
+    )
+    end_date = serializers.DateField(
+        help_text="End date for analytics period (YYYY-MM-DD format)",
+        required=False
+    )
+    group_by = serializers.ChoiceField(
+        choices=['day', 'week', 'month', 'year'],
+        default='day',
+        help_text="Group results by time period"
+    )
+
+    def validate(self, attrs):
+        start_date = attrs.get('start_date')
+        end_date = attrs.get('end_date')
+        
+        if start_date and end_date and start_date > end_date:
+            raise serializers.ValidationError("start_date cannot be after end_date")
+        
+        return attrs
+
+
+class RevenueAnalyticsResponseSerializer(serializers.Serializer):
+    """Serializer for revenue analytics response"""
+    period = serializers.CharField(help_text="Time period (e.g., '2025-01-15' for day)")
+    total_revenue = serializers.DecimalField(
+        max_digits=15, 
+        decimal_places=2,
+        help_text="Total revenue for the period"
+    )
+    service_revenue = serializers.DecimalField(
+        max_digits=15, 
+        decimal_places=2,
+        help_text="Revenue from services"
+    )
+    inventory_revenue = serializers.DecimalField(
+        max_digits=15, 
+        decimal_places=2,
+        help_text="Revenue from inventory/products"
+    )
+    bills_count = serializers.IntegerField(help_text="Number of bills in this period")
+    average_bill_amount = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Average bill amount for the period"
+    )
+
+
+class PaymentAnalyticsResponseSerializer(serializers.Serializer):
+    """Serializer for payment analytics response"""
+    period = serializers.CharField(help_text="Time period")
+    total_payments = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        help_text="Total payments received"
+    )
+    fully_paid_bills = serializers.IntegerField(help_text="Number of fully paid bills")
+    partially_paid_bills = serializers.IntegerField(help_text="Number of partially paid bills")
+    unpaid_bills = serializers.IntegerField(help_text="Number of unpaid bills")
+    outstanding_amount = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        help_text="Total outstanding amount"
+    )
+
+
+class TopCustomersResponseSerializer(serializers.Serializer):
+    """Serializer for top customers analytics"""
+    car_id = serializers.IntegerField(help_text="Car ID")
+    car_plate_number = serializers.CharField(help_text="Car plate number")
+    total_bills = serializers.IntegerField(help_text="Total number of bills")
+    total_revenue = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        help_text="Total revenue from this customer"
+    )
+    average_bill_amount = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Average bill amount"
+    )
+    last_service_date = serializers.DateTimeField(
+        help_text="Date of last service",
+        allow_null=True
+    )
+
+
+class ServiceAnalyticsResponseSerializer(serializers.Serializer):
+    """Serializer for service analytics response"""
+    service_name = serializers.CharField(help_text="Name of the service")
+    service_count = serializers.IntegerField(help_text="Number of times service was provided")
+    total_revenue = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        help_text="Total revenue from this service"
+    )
+    average_price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Average price of this service"
+    )
+
+
+class InventoryAnalyticsResponseSerializer(serializers.Serializer):
+    """Serializer for inventory analytics response"""
+    product_name = serializers.CharField(help_text="Name of the product")
+    quantity_used = serializers.IntegerField(help_text="Total quantity used")
+    total_revenue = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        help_text="Total revenue from this product"
+    )
+    average_price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Average price per unit"
+    )
+
+
+class DashboardSummaryResponseSerializer(serializers.Serializer):
+    """Serializer for dashboard summary analytics"""
+    total_revenue_today = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        help_text="Total revenue for today"
+    )
+    total_revenue_this_month = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        help_text="Total revenue for current month"
+    )
+    total_bills_today = serializers.IntegerField(help_text="Number of bills created today")
+    total_bills_this_month = serializers.IntegerField(help_text="Number of bills created this month")
+    pending_payments = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        help_text="Total amount of pending payments"
+    )
+    pending_bills_count = serializers.IntegerField(help_text="Number of bills with pending payments")
+    average_bill_amount_today = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Average bill amount for today"
+    )
+    top_service_today = serializers.CharField(
+        help_text="Most popular service today",
+        allow_null=True
+    )
+
+
+class MonthlyComparisonResponseSerializer(serializers.Serializer):
+    """Serializer for monthly comparison analytics"""
+    current_month = serializers.DictField(
+        child=serializers.DecimalField(max_digits=15, decimal_places=2),
+        help_text="Current month statistics"
+    )
+    previous_month = serializers.DictField(
+        child=serializers.DecimalField(max_digits=15, decimal_places=2),
+        help_text="Previous month statistics"
+    )
+    growth_percentage = serializers.DictField(
+        child=serializers.DecimalField(max_digits=5, decimal_places=2),
+        help_text="Growth percentage compared to previous month"
+    )
+
+
+class PaymentStatusSummarySerializer(serializers.Serializer):
+    """Serializer for payment status summary"""
+    total_bills = serializers.IntegerField(help_text="Total number of bills")
+    fully_paid = serializers.IntegerField(help_text="Number of fully paid bills")
+    partially_paid = serializers.IntegerField(help_text="Number of partially paid bills")
+    unpaid = serializers.IntegerField(help_text="Number of unpaid bills")
+    fully_paid_percentage = serializers.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        help_text="Percentage of fully paid bills"
+    )
+    total_outstanding = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        help_text="Total outstanding amount"
+    )
+
+
+class PeakHoursAnalyticsSerializer(serializers.Serializer):
+    """Serializer for peak hours analytics"""
+    hour = serializers.IntegerField(help_text="Hour of the day (0-23)")
+    bills_count = serializers.IntegerField(help_text="Number of bills created in this hour")
+    total_revenue = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        help_text="Total revenue in this hour"
+    )
+
+
+class CustomerRetentionSerializer(serializers.Serializer):
+    """Serializer for customer retention analytics"""
+    period = serializers.CharField(help_text="Time period")
+    new_customers = serializers.IntegerField(help_text="Number of new customers")
+    returning_customers = serializers.IntegerField(help_text="Number of returning customers")
+    retention_rate = serializers.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        help_text="Customer retention rate percentage"
+    )
