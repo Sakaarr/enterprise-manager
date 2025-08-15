@@ -6,7 +6,8 @@ from .views import (
     BillDetailAPIView, 
     BillUpdateAPIView, 
     BillDeleteAPIView,
-    BillSearchAPIView
+    BillSearchAPIView,
+    PaidBillListAPIView
 )
 
 urlpatterns = [
@@ -20,4 +21,5 @@ urlpatterns = [
     path('billing/bills/<int:bill_id>/', BillDetailAPIView.as_view(), name='bill-detail'),
     path('billing/bills/<int:bill_id>/update/', BillUpdateAPIView.as_view(), name='bill-update'),
     path('billing/bills/<int:bill_id>/delete/', BillDeleteAPIView.as_view(), name='bill-delete'),
+    path('paid-bills/', PaidBillListAPIView.as_view(), name='paid-bill-list'),
 ]

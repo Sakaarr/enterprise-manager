@@ -1,9 +1,9 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
+from rest_framework import status, permissions, generics
 from .utils import calculate_bill_for_car
-from .serializers import BillCalculationSerializer, BillResponseSerializer, BillUpdateSerializer, BillListSerializer
-from .models import Bill, Car
+from .serializers import BillCalculationSerializer, BillResponseSerializer, BillUpdateSerializer, BillListSerializer, PaidBillSerializer
+from .models import Bill, PaidBill
 from decimal import Decimal
 from django.http import FileResponse
 from .utils_pdf import generate_invoice_pdf
@@ -11,7 +11,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
 import logging
 from django.shortcuts import get_object_or_404
 from django.db import transaction
-from cars.models import CarServiceRecord, ServiceEntry, InventoryUsage
+from cars.models import CarServiceRecord, ServiceEntry, InventoryUsage, Car
 from django.db.models import Q
 
 logger = logging.getLogger(__name__)
@@ -129,7 +129,7 @@ class InvoicePDFView(APIView):
         },
         tags=["Billing"],
         summary="Generate PDF Invoice & Save/Update Bill",
-        description="Calculates the bill for a car, saves or updates it in the database, and returns a downloadable PDF invoice."
+        description="Recalculates the bill, handles overpayment, moves fully paid bills to archive, and returns PDF."
     )
     def post(self, request):
         serializer = BillCalculationSerializer(data=request.data)
@@ -138,59 +138,78 @@ class InvoicePDFView(APIView):
 
         try:
             car_id = serializer.validated_data['car_id']
-            discount = serializer.validated_data.get('discount', Decimal('0'))
-            new_amount_paid = serializer.validated_data.get('amount_paid', Decimal('0'))
+            add_discount = serializer.validated_data.get('discount', Decimal('0'))
+            add_amount_paid = serializer.validated_data.get('amount_paid', Decimal('0'))
 
-            # Check if car exists
             try:
                 car = Car.objects.get(id=car_id)
             except Car.DoesNotExist:
-                return Response(
-                    {"detail": "Car not found."},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+                return Response({"detail": "Car not found."}, status=status.HTTP_404_NOT_FOUND)
 
-            # Calculate bill (fresh calculation for current costs)
-            result = calculate_bill_for_car(car_id, discount, new_amount_paid)
-            if result is None:
-                return Response(
-                    {"detail": "No service record found for this car."},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+            bill_data = calculate_bill_for_car(car_id)
+            if bill_data is None:
+                return Response({"detail": "No service record found for this car."}, status=status.HTTP_404_NOT_FOUND)
 
-            # Check if bill already exists
-            bill = Bill.objects.filter(car=car).first()
-            if bill:
-                # Update existing bill
-                bill.amount_paid += new_amount_paid
-                bill.discount = discount  # Update if discount is changed
-                bill.amount_remaining = bill.total_amount - bill.amount_paid
-                bill.save()
+            bill, _ = Bill.objects.get_or_create(
+                car=car,
+                defaults={
+                    "discount": Decimal('0'),
+                    "amount_paid": Decimal('0'),
+                    "total_service_cost": bill_data['total_service_cost'],
+                    "total_inventory_cost": bill_data['total_inventory_cost'],
+                    "total_amount": bill_data['total_amount'],
+                    "amount_remaining": bill_data['total_amount'],
+                    "entered_by": request.user
+                }
+            )
+
+            # Cumulative update
+            bill.discount += add_discount
+            bill.total_service_cost = bill_data['total_service_cost']
+            bill.total_inventory_cost = bill_data['total_inventory_cost']
+            bill.total_amount = bill.total_service_cost + bill.total_inventory_cost - bill.discount
+
+            # Overpayment handling
+            return_to_customer = Decimal('0')
+            potential_new_paid = bill.amount_paid + add_amount_paid
+            if potential_new_paid > bill.total_amount:
+                return_to_customer = potential_new_paid - bill.total_amount
+                bill.amount_paid = bill.total_amount
             else:
-                # Create new bill
-                bill = Bill.objects.create(
+                bill.amount_paid = potential_new_paid
+
+            bill.amount_remaining = bill.total_amount - bill.amount_paid
+            bill.save()
+
+            # If bill is fully paid, archive & clean
+            if bill.amount_remaining <= 0:
+                PaidBill.objects.create(
                     car=car,
-                    total_service_cost=result['total_service_cost'],
-                    total_inventory_cost=result['total_inventory_cost'],
-                    total_amount=result['total_amount'],
-                    discount=discount,
-                    amount_paid=new_amount_paid,
-                    amount_remaining=result['amount_remaining'],
-                    entered_by=request.user
+                    discount=bill.discount,
+                    total_service_cost=bill.total_service_cost,
+                    total_inventory_cost=bill.total_inventory_cost,
+                    total_amount=bill.total_amount,
+                    amount_paid=bill.amount_paid,
+                    entered_by=bill.entered_by
                 )
 
-            # Add car & bill details for PDF
-            result['car'] = {
-                'plate_number': car.plate_number,
-                'id': car.id
-            }
-            result['bill_id'] = bill.id
-            result['created_at'] = bill.created_at
-            result['amount_paid'] = str(bill.amount_paid)
-            result['amount_remaining'] = str(bill.amount_remaining)
+                # Delete service records for car
+                CarServiceRecord.objects.filter(car=car).delete()
 
-            # Generate PDF
-            pdf_buffer = generate_invoice_pdf(result)
+                # Delete original bill
+                bill.delete()
+
+            bill_data.update({
+                "car": {"plate_number": car.plate_number, "id": car.id},
+                "bill_id": bill.id if bill.id else None,
+                "discount": str(bill.discount),
+                "amount_paid": str(bill.amount_paid),
+                "amount_remaining": str(bill.amount_remaining),
+                "total_amount": str(bill.total_amount),
+                "return_to_customer": str(return_to_customer)
+            })
+
+            pdf_buffer = generate_invoice_pdf(bill_data)
             return FileResponse(
                 pdf_buffer,
                 as_attachment=True,
@@ -199,11 +218,12 @@ class InvoicePDFView(APIView):
             )
 
         except Exception as e:
-            logger.error(f"Error generating PDF for car {car_id}: {str(e)}")
+            logger.exception(f"Error generating PDF for car {car_id}: {str(e)}")
             return Response(
                 {"detail": "An error occurred while generating the PDF."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
 class BillUpdateAPIView(APIView):
     """
     API to update bill payment information.
@@ -741,3 +761,30 @@ class BillSearchAPIView(APIView):
                 {"detail": "An error occurred while searching bills."}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+            
+@extend_schema(
+    operation_id="list_paid_bills",
+    responses={200: PaidBillSerializer(many=True)},
+    tags=["Billing"],
+    summary="List All Paid Bills",
+    description="Retrieve a paginated list of all paid bills with optional filters."
+)         
+class PaidBillListAPIView(generics.ListAPIView):
+    queryset = PaidBill.objects.all()
+    serializer_class = PaidBillSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        # Optional filters
+        car_id = self.request.query_params.get('car_id')
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+
+        if car_id:
+            queryset = queryset.filter(car_id=car_id)
+        if start_date and end_date:
+            queryset = queryset.filter(created_at__date__range=[start_date, end_date])
+
+        return queryset

@@ -23,3 +23,14 @@ class Bill(models.Model):
     @property
     def is_fully_paid(self):
         return self.amount_remaining <= 0
+
+
+class PaidBill(models.Model):
+    car = models.ForeignKey(Car, on_delete=models.CASCADE)
+    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    total_service_cost = models.DecimalField(max_digits=10, decimal_places=2)
+    total_inventory_cost = models.DecimalField(max_digits=10, decimal_places=2)
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2)
+    entered_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)

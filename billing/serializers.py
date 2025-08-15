@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from decimal import Decimal
-from .models import Bill
+from .models import Bill, PaidBill
 
 
 class BillCalculationSerializer(serializers.Serializer):
@@ -126,3 +126,11 @@ class BillListSerializer(serializers.ModelSerializer):
             return "Partially Paid"
         else:
             return "Unpaid"
+
+
+class PaidBillSerializer(serializers.ModelSerializer):
+    car_plate_number = serializers.CharField(source='car.plate_number', read_only=True)
+
+    class Meta:
+        model = PaidBill
+        fields = '__all__'
