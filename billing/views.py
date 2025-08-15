@@ -121,15 +121,15 @@ class InvoicePDFView(APIView):
         responses={
             200: OpenApiResponse(
                 description="PDF invoice generated and returned.",
-                response=bytes,  # Use bytes instead of a complex type
+                response=bytes,
             ),
             400: OpenApiResponse(description="Invalid input data."),
             404: OpenApiResponse(description="Car or service record not found."),
             500: OpenApiResponse(description="Error generating PDF."),
         },
         tags=["Billing"],
-        summary="Generate PDF Invoice",
-        description="Calculates the bill for a car and returns a downloadable PDF invoice with service and inventory breakdown."
+        summary="Generate PDF Invoice & Save/Update Bill",
+        description="Calculates the bill for a car, saves or updates it in the database, and returns a downloadable PDF invoice."
     )
     def post(self, request):
         serializer = BillCalculationSerializer(data=request.data)
@@ -139,49 +139,71 @@ class InvoicePDFView(APIView):
         try:
             car_id = serializer.validated_data['car_id']
             discount = serializer.validated_data.get('discount', Decimal('0'))
-            amount_paid = serializer.validated_data.get('amount_paid', Decimal('0'))
+            new_amount_paid = serializer.validated_data.get('amount_paid', Decimal('0'))
 
             # Check if car exists
             try:
                 car = Car.objects.get(id=car_id)
             except Car.DoesNotExist:
                 return Response(
-                    {"detail": "Car not found."}, 
+                    {"detail": "Car not found."},
                     status=status.HTTP_404_NOT_FOUND
                 )
 
-            # Calculate bill
-            result = calculate_bill_for_car(car_id, discount, amount_paid)
+            # Calculate bill (fresh calculation for current costs)
+            result = calculate_bill_for_car(car_id, discount, new_amount_paid)
             if result is None:
                 return Response(
-                    {"detail": "No service record found for this car."}, 
+                    {"detail": "No service record found for this car."},
                     status=status.HTTP_404_NOT_FOUND
                 )
 
-            # Add car details to result for PDF
+            # Check if bill already exists
+            bill = Bill.objects.filter(car=car).first()
+            if bill:
+                # Update existing bill
+                bill.amount_paid += new_amount_paid
+                bill.discount = discount  # Update if discount is changed
+                bill.amount_remaining = bill.total_amount - bill.amount_paid
+                bill.save()
+            else:
+                # Create new bill
+                bill = Bill.objects.create(
+                    car=car,
+                    total_service_cost=result['total_service_cost'],
+                    total_inventory_cost=result['total_inventory_cost'],
+                    total_amount=result['total_amount'],
+                    discount=discount,
+                    amount_paid=new_amount_paid,
+                    amount_remaining=result['amount_remaining'],
+                    entered_by=request.user
+                )
+
+            # Add car & bill details for PDF
             result['car'] = {
                 'plate_number': car.plate_number,
                 'id': car.id
             }
+            result['bill_id'] = bill.id
+            result['created_at'] = bill.created_at
+            result['amount_paid'] = str(bill.amount_paid)
+            result['amount_remaining'] = str(bill.amount_remaining)
 
             # Generate PDF
             pdf_buffer = generate_invoice_pdf(result)
-            response = FileResponse(
-                pdf_buffer, 
-                as_attachment=True, 
+            return FileResponse(
+                pdf_buffer,
+                as_attachment=True,
                 filename=f"invoice_car_{car.plate_number}_{car_id}.pdf",
                 content_type='application/pdf'
             )
-            return response
 
         except Exception as e:
             logger.error(f"Error generating PDF for car {car_id}: {str(e)}")
             return Response(
-                {"detail": "An error occurred while generating the PDF."}, 
+                {"detail": "An error occurred while generating the PDF."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
-
 class BillUpdateAPIView(APIView):
     """
     API to update bill payment information.
