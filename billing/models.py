@@ -34,3 +34,24 @@ class PaidBill(models.Model):
     amount_paid = models.DecimalField(max_digits=10, decimal_places=2)
     entered_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ArchivedServiceEntry(models.Model):
+    paid_bill = models.ForeignKey(PaidBill, on_delete=models.CASCADE, related_name="archived_services")
+    service_name = models.CharField(max_length=100)
+    service_description = models.TextField(blank=True, null=True)
+    cost = models.DecimalField(max_digits=10, decimal_places=2)
+    remarks = models.TextField(blank=True, null=True)
+    performed_at = models.DateTimeField()
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField(null=True, blank=True)
+
+
+class ArchivedInventoryUsage(models.Model):
+    paid_bill = models.ForeignKey(PaidBill, on_delete=models.CASCADE, related_name="archived_inventory")
+    product_name = models.CharField(max_length=255)
+    quantity = models.PositiveIntegerField()
+    unit_cost = models.DecimalField(max_digits=10, decimal_places=2)
+    total_cost = models.DecimalField(max_digits=10, decimal_places=2)
+    used_at = models.DateTimeField()
+    created_at = models.DateTimeField()

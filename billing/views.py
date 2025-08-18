@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status, permissions, generics
 from .utils import calculate_bill_for_car
 from .serializers import *
-from .models import Bill, PaidBill
+from .models import Bill, PaidBill, ArchivedInventoryUsage, ArchivedServiceEntry
 from decimal import Decimal
 from django.http import FileResponse
 from .utils_pdf import generate_invoice_pdf
@@ -122,7 +122,6 @@ class BillCalculationAPIView(APIView):
 
 class InvoicePDFView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-
     @extend_schema(
         operation_id="generate_invoice_pdf",
         request=BillCalculationSerializer,
@@ -139,6 +138,8 @@ class InvoicePDFView(APIView):
         summary="Generate PDF Invoice & Save/Update Bill",
         description="Recalculates the bill, handles overpayment, moves fully paid bills to archive, and returns PDF."
     )
+    
+
     def post(self, request):
         serializer = BillCalculationSerializer(data=request.data)
         if not serializer.is_valid():
@@ -171,13 +172,11 @@ class InvoicePDFView(APIView):
                 }
             )
 
-            # Cumulative update
             bill.discount += add_discount
             bill.total_service_cost = bill_data['total_service_cost']
             bill.total_inventory_cost = bill_data['total_inventory_cost']
             bill.total_amount = bill.total_service_cost + bill.total_inventory_cost - bill.discount
 
-            # Overpayment handling
             return_to_customer = Decimal('0')
             potential_new_paid = bill.amount_paid + add_amount_paid
             if potential_new_paid > bill.total_amount:
@@ -189,9 +188,9 @@ class InvoicePDFView(APIView):
             bill.amount_remaining = bill.total_amount - bill.amount_paid
             bill.save()
 
-            # If bill is fully paid, archive & clean
+            # If bill is fully paid, archive data & clean up
             if bill.amount_remaining <= 0:
-                PaidBill.objects.create(
+                paid_bill = PaidBill.objects.create(
                     car=car,
                     discount=bill.discount,
                     total_service_cost=bill.total_service_cost,
@@ -201,12 +200,40 @@ class InvoicePDFView(APIView):
                     entered_by=bill.entered_by
                 )
 
-                # Delete service records for car
+                # Archive Service Entries
+                service_entries = ServiceEntry.objects.filter(service_record__car=car)
+                for se in service_entries:
+                    ArchivedServiceEntry.objects.create(
+                        paid_bill=paid_bill,
+                        service_name=se.service.name,
+                        service_description=se.service.description,
+                        cost=se.service.standard_rate,
+                        remarks=se.remarks,
+                        performed_at=se.performed_at,
+                        created_at=se.service_record.created_at,
+                        updated_at=se.service_record.updated_at
+                    )
+
+                # Archive Inventory Usage
+                inventory_usages = InventoryUsage.objects.filter(service_record__car=car)
+                for iu in inventory_usages:
+                    unit_cost = iu.product.unit_price  # adjust if your InventoryItem uses different field
+                    total_cost = unit_cost * iu.quantity_used
+                    ArchivedInventoryUsage.objects.create(
+                        paid_bill=paid_bill,
+                        product_name=iu.product.name,
+                        quantity=iu.quantity_used,
+                        unit_cost=unit_cost,
+                        total_cost=total_cost,
+                        used_at=iu.used_at,
+                        created_at=iu.service_record.created_at
+                    )
+
+                # Clean active records
+                service_entries.delete()
+                inventory_usages.delete()
                 CarServiceRecord.objects.filter(car=car).delete()
-
-                # Delete original bill
                 bill.delete()
-
             bill_data.update({
                 "car": {"plate_number": car.plate_number, "id": car.id},
                 "bill_id": bill.id if bill.id else None,
@@ -231,7 +258,6 @@ class InvoicePDFView(APIView):
                 {"detail": "An error occurred while generating the PDF."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
 class BillUpdateAPIView(APIView):
     """
     API to update bill payment information.
