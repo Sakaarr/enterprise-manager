@@ -54,7 +54,7 @@ def generate_invoice_pdf(data):
             for service in data['service_lines']:
                 service_data.append([
                     service['name'],
-                    f"${service['rate']}",
+                    f"Rs.{service['rate']}",
                     service['performed_at'],
                     service['remarks'][:50] + '...' if len(service['remarks']) > 50 else service['remarks']
                 ])
@@ -83,9 +83,9 @@ def generate_invoice_pdf(data):
             for product in data['product_lines']:
                 product_data.append([
                     product['name'],
-                    f"${product['rate']}",
+                    f"Rs.{product['rate']}",
                     product['quantity'],
-                    f"${product['total']}",
+                    f"Rs.{product['total']}",
                     product['used_at']
                 ])
             
@@ -109,12 +109,12 @@ def generate_invoice_pdf(data):
         # Summary section
         elements.append(Paragraph("BILL SUMMARY", styles['Heading2']))
         summary_data = [
-            ['Total Service Cost:', f"${data['total_service_cost']}"],
-            ['Total Inventory Cost:', f"${data['total_inventory_cost']}"],
-            ['Subtotal:', f"${data['total_amount']}"],
-            ['Discount:', f"${data['discount']}"],
-            ['Amount Paid:', f"${data['amount_paid']}"],
-            ['Amount Remaining:', f"${data['amount_remaining']}"]
+            ['Total Service Cost:', f"Rs.{data['total_service_cost']}"],
+            ['Total Inventory Cost:', f"Rs.{data['total_inventory_cost']}"],
+            ['Subtotal:', f"Rs.{data['total_amount']}"],
+            ['Discount:', f"Rs.{data['discount']}"],
+            ['Amount Paid:', f"Rs.{data['amount_paid']}"],
+            ['Amount Remaining:', f"Rs.{data['amount_remaining']}"]
         ]
         
         summary_table = Table(summary_data, colWidths=[3*inch, 2*inch])
