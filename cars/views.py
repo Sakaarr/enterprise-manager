@@ -11,6 +11,15 @@ from rest_framework.response import Response
 from .filters import CarFilter
 from common.viewsets import StandardizedModelViewSet
 from drf_spectacular.types import OpenApiTypes
+from django.http import HttpResponse
+from rest_framework.views import APIView
+from reportlab.lib import colors
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import inch
+from reportlab.platypus import Table, TableStyle, Paragraph, SimpleDocTemplate, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.pagesizes import A4
+
 @extend_schema_view(
     list=extend_schema(tags=["Car"]),
     create=extend_schema(tags=["Car"]),
@@ -345,3 +354,246 @@ class InventoryUsageViewSet(StandardizedModelViewSet):
             "description": "Summary of inventory usage by product",
             "data": list(readable_summary)
         })
+        
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, HRFlowable
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from datetime import datetime
+import qrcode
+import io
+from reportlab.graphics.shapes import Drawing, Rect, String
+from reportlab.graphics import renderPDF
+class GatePassPDFView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def create_header_section(self, job_entry, car):
+        """Create modern header with company branding"""
+        story = []
+        
+        # Company header (customize with your company details)
+        header_style = ParagraphStyle(
+            'CompanyHeader',
+            fontSize=12,
+            textColor=colors.HexColor("#4a5568"),
+            alignment=TA_CENTER,
+            spaceAfter=10
+        )
+        
+        story.append(Paragraph("AUTOGARDEN PVT. LTD.", header_style))
+        story.append(Paragraph("📍 Hakim Chowk, Chitwan, Nepal | ☎️ (+977) 9864280345", 
+                              ParagraphStyle('CompanyInfo', fontSize=9, textColor=colors.HexColor("#718096"), alignment=TA_CENTER, spaceAfter=20)))
+        
+        # Modern title with accent
+        title_style = ParagraphStyle(
+            'ModernTitle',
+            fontSize=28,
+            fontName='Helvetica-Bold',
+            textColor=colors.HexColor("#1a202c"),
+            alignment=TA_CENTER,
+            spaceBefore=20,
+            spaceAfter=10
+        )
+        
+        story.append(Paragraph("VEHICLE GATE PASS", title_style))
+        
+        # # Subtitle with gate pass number
+        # subtitle_style = ParagraphStyle(
+        #     'SubtitleStyle',
+        #     fontSize=10,
+        #     textColor=colors.HexColor("#4299e1"),
+        #     alignment=TA_CENTER,
+        #     spaceAfter=30,
+        #     fontName='Helvetica-Bold'
+        # )
+        
+        # story.append(Paragraph(f"Pass No. GP-{job_entry.id:04d}", subtitle_style))
+        
+        return story
+
+    def create_info_cards(self, job_entry, car):
+        """Create modern card-style information layout"""
+        story = []
+        
+        # Vehicle Details Card
+        story.append(Paragraph("🚗 Vehicle Details", 
+                              ParagraphStyle('CardTitle', fontSize=12, fontName='Helvetica-Bold', 
+                                           textColor=colors.HexColor("#2d3748"), spaceAfter=10)))
+        
+        vehicle_info = [
+            ["License Plate", car.plate_number, "Entry Date", job_entry.entry_date.strftime("%d %B %Y")],
+            ["Make & Model", f"{car.brand} {car.model}", "Entry Time", job_entry.entry_date.strftime("%I:%M %p")],
+            ["Color", car.color or "Not specified", "Service Type", car.get_service_type_display()],
+            ["Year", str(car.year) if car.year else "N/A", "Odometer", f"{car.kms_reading} km" if car.kms_reading else "N/A"],
+        ]
+
+        vehicle_table = Table(vehicle_info, colWidths=[100, 120, 100, 120])
+        vehicle_table.setStyle(TableStyle([
+            # Modern card styling
+            ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            
+            # Label styling
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (2, 0), (2, -1), 'Helvetica-Bold'),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor("#4a5568")),
+            ('TEXTCOLOR', (2, 0), (2, -1), colors.HexColor("#4a5568")),
+            
+            # Value styling
+            ('TEXTCOLOR', (1, 0), (1, -1), colors.HexColor("#1a202c")),
+            ('TEXTCOLOR', (3, 0), (3, -1), colors.HexColor("#1a202c")),
+            
+            # Layout
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 12),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            
+            # Borders and colors
+            ('BOX', (0, 0), (-1, -1), 1.5, colors.HexColor("#e2e8f0")),
+            ('LINEBELOW', (0, 0), (-1, 0), 0, colors.white),
+            ('LINEBETWEEN', (0, 1), (-1, -2), 0.5, colors.HexColor("#f1f5f9")),
+            
+            # Alternating row colors
+            ('ROWBACKGROUNDS', (0, 0), (-1, -1), [colors.HexColor("#f8f9fa"), colors.white]),
+        ]))
+
+        story.append(vehicle_table)
+        story.append(Spacer(1, 0.3 * inch))
+
+        # Owner Details Card
+        story.append(Paragraph("👤 Owner Information", 
+                              ParagraphStyle('CardTitle', fontSize=12, fontName='Helvetica-Bold', 
+                                           textColor=colors.HexColor("#2d3748"), spaceAfter=10)))
+
+        owner_info = [
+            ["Full Name", car.owner_name or "Not provided"],
+            ["Phone Number", car.owner_contact or "Not provided"],
+            ["Email Address", car.owner_email or "Not provided"],
+        ]
+
+        owner_table = Table(owner_info, colWidths=[120, 320])
+        owner_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor("#4a5568")),
+            ('TEXTCOLOR', (1, 0), (1, -1), colors.HexColor("#1a202c")),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BOX', (0, 0), (-1, -1), 1.5, colors.HexColor("#e2e8f0")),
+            ('LINEBETWEEN', (0, 0), (-1, -2), 0.5, colors.HexColor("#f1f5f9")),
+            ('LEFTPADDING', (0, 0), (-1, -1), 12),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('ROWBACKGROUNDS', (0, 0), (-1, -1), [colors.HexColor("#f8f9fa"), colors.white]),
+        ]))
+
+        story.append(owner_table)
+        
+        return story
+
+    def get(self, request, jobentry_id):
+        try:
+            job_entry = JobEntry.objects.select_related("car").get(id=jobentry_id)
+            car = job_entry.car
+        except JobEntry.DoesNotExist:
+            return HttpResponse("Job Entry not found", status=404)
+
+        response = HttpResponse(content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename=gate_pass_{job_entry.id}.pdf'
+
+        doc = SimpleDocTemplate(
+            response, 
+            pagesize=A4,
+            rightMargin=40,
+            leftMargin=40,
+            topMargin=50,
+            bottomMargin=50
+        )
+
+        story = []
+        
+        # Add header section
+        story.extend(self.create_header_section(job_entry, car))
+        
+        # Add information cards
+        story.extend(self.create_info_cards(job_entry, car))
+
+        # Notes section
+        if job_entry.notes:
+            story.append(Spacer(1, 0.3 * inch))
+            story.append(Paragraph("📝 Special Instructions", 
+                                  ParagraphStyle('NotesHeader', fontSize=12, fontName='Helvetica-Bold', 
+                                               textColor=colors.HexColor("#2d3748"), spaceAfter=10)))
+            
+            notes_style = ParagraphStyle(
+                'ModernNotes',
+                fontSize=10,
+                leftIndent=20,
+                rightIndent=20,
+                spaceBefore=5,
+                spaceAfter=20,
+                borderColor=colors.HexColor("#fbb6ce"),
+                borderWidth=1,
+                borderPadding=10,
+                backColor=colors.HexColor("#fef5e7"),
+                textColor=colors.HexColor("#744210")
+            )
+            story.append(Paragraph(job_entry.notes, notes_style))
+
+        # Security and validity footer
+        story.append(Spacer(1, 0.5 * inch))
+        
+        # Security notice
+        security_style = ParagraphStyle(
+            'SecurityStyle',
+            fontSize=10,
+            textColor=colors.HexColor("#1a202c"),
+            alignment=TA_CENTER,
+            spaceBefore=20,
+            fontName='Helvetica-Bold'
+        )
+        
+        story.append(Paragraph("🔒 SECURITY VERIFIED DOCUMENT", security_style))
+        
+        # Footer information
+        footer_info = f"""
+        <para align="center" fontSize="8" textColor="#718096">
+        This gate pass is electronically generated and valid for the specified vehicle only.<br/>
+        Generated on {datetime.now().strftime('%B %d, %Y at %I:%M %p')} | Document ID: GP-{job_entry.id:04d}<br/>
+        For verification or inquiries, contact workshop administration.
+        </para>
+        """
+        styles = getSampleStyleSheet()
+        story.append(Spacer(1, 0.2 * inch))
+        story.append(Paragraph(footer_info, styles['Normal']))
+
+        # Custom page styling function
+        def modern_page_style(canvas, doc):
+            """Add modern page styling"""
+            canvas.saveState()
+            
+            # Subtle gradient effect (top border)
+            canvas.setFillColor(colors.HexColor("#4299e1"))
+            canvas.rect(0, A4[1]-20, A4[0], 20, fill=1, stroke=0)
+            
+            # Side accent
+            canvas.setFillColor(colors.HexColor("#63b3ed"))
+            canvas.rect(0, 0, 8, A4[1], fill=1, stroke=0)
+            
+            # Bottom border
+            canvas.setStrokeColor(colors.HexColor("#e2e8f0"))
+            canvas.setLineWidth(1)
+            canvas.line(30, 40, A4[0]-30, 40)
+            
+            canvas.restoreState()
+
+        # Build the PDF
+        doc.build(story, onFirstPage=modern_page_style, onLaterPages=modern_page_style)
+
+        return response
