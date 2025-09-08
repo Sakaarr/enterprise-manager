@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'cars',
     'inventory',
     'billing',
+    'purchase'
 ]
 # Django-Celery-Beat
 INSTALLED_APPS += ['django_celery_beat']
