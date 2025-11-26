@@ -26,12 +26,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECRET_KEY = "django-insecure-@qtj(32e0t(t7%j+rt6*fjio7%jnlu#7$m007v(7!^=k)1ex_6"
 
 # # SECURITY WARNING: don't run with debug turned on in production!
-# DEBUG = True
+DEBUG = True
 
 # ALLOWED_HOSTS = []
-DEBUG = config('DEBUG', cast=bool)
-SECRET_KEY = config('SECRET_KEY')
-ALLOWED_HOSTS = config('ALLOWED_HOSTS').split(',')
+# DEBUG = TRUE
+SECRET_KEY = "django-insecure-@qtj(32e0t(t7%j+rt6*fjio7%jnlu#7$m007v(7!^=)1ex_6"
+ALLOWED_HOSTS = ["*"]
 
 # Application definition
 CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'  # Use Redis as broker
@@ -58,8 +58,8 @@ INSTALLED_APPS = [
 INSTALLED_APPS += ['django_celery_beat']
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -94,12 +94,8 @@ WSGI_APPLICATION = "autogarden.wsgi.application"
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME'),
-        'USER': config('DB_USER'),
-        'PASSWORD': config('DB_PASSWORD'),
-        'HOST': config('DB_HOST'),
-        'PORT': config('DB_PORT'),
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
 AUTH_USER_MODEL = 'users.User'
@@ -136,8 +132,9 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 10,
     
 }
-CORS_URLS_REGEX = r"^/api/.*$"
 CORS_ORIGIN_ALLOW_ALL = True
+CORS_URLS_REGEX = r"^/api/.*$"
+
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Mechanical Workshop API',
     'DESCRIPTION': 'Internal System for Inventory, Billing, Reminders, and More',
