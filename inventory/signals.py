@@ -3,6 +3,9 @@ from django.dispatch import receiver
 from .models import InventoryItem, Supplier, ProductCategory
 from django.core.mail import send_mail
 from django.conf import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 @receiver(post_save, sender=InventoryItem)
 def inventory_saved(sender, instance, created, **kwargs):
@@ -11,7 +14,19 @@ def inventory_saved(sender, instance, created, **kwargs):
 
     if instance.is_low_stock():
         print(f"⚠ LOW STOCK ALERT for {instance.name} (Stock: {instance.quantity_in_stock})")
-        # Future: Send email / dashboard notification
+        # Send email alert with error handling
+        try:
+            send_mail(
+                subject="Low Stock Alert",
+                message=f"Product '{instance.name}' has low stock: {instance.quantity_in_stock}",
+                from_email=settings.EMAIL_HOST_USER,
+                recipient_list=["axortechnp@gmail.com"],
+                fail_silently=False,
+            )
+        except Exception as e:
+            # Log the error but don't break the product creation
+            logger.error(f"Failed to send low stock alert email for {instance.name}: {str(e)}")
+            print(f"⚠ Failed to send email alert: {str(e)}")
 
 @receiver(post_delete, sender=InventoryItem)
 def inventory_deleted(sender, instance, **kwargs):
@@ -30,15 +45,3 @@ def supplier_deleted(sender, instance, **kwargs):
 def category_saved(sender, instance, created, **kwargs):
     action = "created" if created else "updated"
     print(f"Product category {action}: {instance.name}")
-    
-
-@receiver(post_save, sender=InventoryItem)
-def check_low_stock(sender, instance, **kwargs):
-    if instance.quantity_in_stock <= instance.low_stock_threshold:  # assuming you add this field
-        # Log or send alert
-        send_mail(
-            subject="Low Stock Alert",
-            message=f"Product '{instance.name}' has low stock: {instance.quantity_in_stock}",
-            from_email=settings.EMAIL_HOST_USER,
-            recipient_list=["axortechnp@gmail.com"]
-        )

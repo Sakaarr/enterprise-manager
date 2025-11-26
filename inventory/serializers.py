@@ -4,12 +4,14 @@ from .models import InventoryItem, Supplier, ProductCategory
 class SupplierSerializer(serializers.ModelSerializer):
     class Meta:
         model = Supplier
-        fields = ['id', 'name', 'contact_person', 'phone_number', 'email', 'address']
+        fields = [
+            'id', 'name', 'contact_person', 'phone_number', 'email', 'address', 'created_at', 'updated_at'
+        ]
 
 class ProductCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductCategory
-        fields = ['id', 'name', 'description']
+        fields = ['id', 'name', 'description', 'created_at', 'updated_at']
 
 class InventoryItemSerializer(serializers.ModelSerializer):
     supplier = SupplierSerializer(read_only=True)
@@ -18,7 +20,7 @@ class InventoryItemSerializer(serializers.ModelSerializer):
     )
     category = ProductCategorySerializer(read_only=True)
     category_id = serializers.PrimaryKeyRelatedField(
-        queryset=ProductCategory.objects.all(), source='category', write_only=True
+        queryset=ProductCategory.objects.all(), source='category', write_only=True, required=False, allow_null=True
     )
 
     class Meta:
@@ -29,16 +31,4 @@ class InventoryItemSerializer(serializers.ModelSerializer):
             'standard_rate', 'unit', 'low_stock_threshold',
             'sku', 'created_at', 'updated_at'
         ]
-
-class SupplierSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Supplier
-        fields = [
-            'id', 'name', 'contact_person', 'phone_number', 'email', 'address', 'created_at', 'updated_at'
-        ]
-        
-class ProductCategorySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProductCategory
-        fields = ['id', 'name', 'description', 'created_at', 'updated_at']
     
